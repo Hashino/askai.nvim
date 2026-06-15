@@ -36,6 +36,9 @@ Config.options = {
     AskaiSpinner = { fg = "#89b4fa", bold = true },
   },
 
+  -- Maximum characters of the document to send as context (to avoid hitting token limits)
+  max_context_size = 8000,
+
   -- see :h nvim_open_win() for available options
   win_config = {
     relative = "editor",

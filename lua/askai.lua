@@ -239,22 +239,28 @@ function AskAI.ask(question)
   -- get visual selection if any
   local selected_text = get_visual_selection(buf)
 
-  -- get full document text
+  -- get full document text (truncated to avoid token limits)
   local full_doc = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local full_text = table.concat(full_doc, "\n")
+  local max_ctx = config.options.max_context_size
+  if #full_text > max_ctx then
+    full_text = string.sub(full_text, 1, max_ctx)
+      .. "\n\n-- [[ ... truncated to " .. max_ctx .. " characters ... ]]"
+  end
   local filetype = vim.bo[buf].filetype
 
   -- build the prompt
-  local prompt_parts = { "I have a question about this code.\n" }
+  local prompt_parts = {}
+  table.insert(prompt_parts, "I have a question about this code.\n")
   table.insert(prompt_parts, "Question: " .. question .. "\n")
 
   if selected_text then
-    table.insert(prompt_parts, "Selected text:\n```" .. filetype .. "\n")
+    table.insert(prompt_parts, "Context: the user selected this portion of the document:\n```" .. filetype .. "\n")
     table.insert(prompt_parts, selected_text)
     table.insert(prompt_parts, "\n```\n")
   end
 
-  table.insert(prompt_parts, "Full document (filetype: " .. filetype .. "):\n```" .. filetype .. "\n")
+  table.insert(prompt_parts, "```" .. filetype .. "\n")
   table.insert(prompt_parts, full_text)
   table.insert(prompt_parts, "\n```\n")
 
