@@ -121,4 +121,46 @@ function AI.ask(prompt, callback)
   })
 end
 
+--- Make a synchronous test request to validate provider config.
+--- Returns { success = boolean, error = string? }
+function AI.validate_provider()
+  local test_prompt = "Reply with exactly: OK"
+  local headers, body, is_anthropic = build_request(test_prompt)
+
+  local cmd = { "curl", "-sS", "-X", "POST", config.options.provider.api_url }
+  for k, v in pairs(headers) do
+    table.insert(cmd, "-H")
+    table.insert(cmd, k .. ": " .. v)
+  end
+  table.insert(cmd, "-d")
+  table.insert(cmd, body)
+
+  local job_id = vim.fn.jobstart(cmd, { stdout_buffered = true, stderr_buffered = true })
+  if job_id <= 0 then
+    return { success = false, error = "Failed to start curl process" }
+  end
+
+  local result = vim.fn.jobwait({ job_id }, 15000) -- 15s timeout
+  if not result or result[1] ~= 0 then
+    return { success = false, error = "curl exited with code " .. (result and result[1] or "unknown") }
+  end
+
+  local output = vim.fn.joboutput(job_id)
+  if not output or vim.trim(output) == "" then
+    return { success = false, error = "Provider returned empty response" }
+  end
+
+  local ok, decoded = pcall(vim.json.decode, output)
+  if not ok then
+    return { success = false, error = "Could not parse API response: " .. output }
+  end
+
+  local content = extract_content(decoded, is_anthropic)
+  if type(content) ~= "string" or content == "" then
+    return { success = false, error = "Provider returned empty content" }
+  end
+
+  return { success = true }
+end
+
 return AI

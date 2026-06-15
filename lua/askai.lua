@@ -16,9 +16,6 @@ local AskAI = {
 
 --- Setup askai.nvim
 ---@param opts? askai.Config
---- Setup askai.nvim
----@param opts? askai.Config
----@return boolean true if setup succeeded
 function AskAI.setup(opts)
   config.options = vim.tbl_deep_extend("force", config.options, opts or {})
 
@@ -28,7 +25,15 @@ function AskAI.setup(opts)
     vim.notify("[askai.nvim] provider.api_url, provider.model and provider.api_key must be set",
       vim.log.levels.ERROR)
     AskAI._initialized = false
-    return false
+    return
+  end
+
+  -- Validate provider with a test request
+  local validation = ai.validate_provider()
+  if not validation.success then
+    vim.notify("[askai.nvim] Provider validation failed: " .. validation.error, vim.log.levels.ERROR)
+    AskAI._initialized = false
+    return
   end
 
   AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true })
@@ -41,8 +46,8 @@ function AskAI.setup(opts)
     end
   end
 
+  vim.notify("[askai.nvim] Provider validated successfully", vim.log.levels.INFO)
   AskAI._initialized = true
-  return true
 end
 
 --- Extract visual selection text from the '< and '> marks.
