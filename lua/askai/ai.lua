@@ -135,17 +135,43 @@ function AI.validate_provider()
   table.insert(cmd, "-d")
   table.insert(cmd, body)
 
-  local job_id = vim.fn.jobstart(cmd, { stdout_buffered = true, stderr_buffered = true })
+  local stdout_data = {}
+  local stderr_data = {}
+  local exit_code = nil
+
+  local job_id = vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data, _)
+      if data then
+        for _, line in ipairs(data) do
+          table.insert(stdout_data, line)
+        end
+      end
+    end,
+    on_stderr = function(_, data, _)
+      if data then
+        for _, line in ipairs(data) do
+          table.insert(stderr_data, line)
+        end
+      end
+    end,
+    on_exit = function(_, code, _)
+      exit_code = code
+    end,
+  })
+
   if job_id <= 0 then
     return { success = false, error = "Failed to start curl process" }
   end
 
   local result = vim.fn.jobwait({ job_id }, 15000) -- 15s timeout
   if not result or result[1] ~= 0 then
-    return { success = false, error = "curl exited with code " .. (result and result[1] or "unknown") }
+    local err = table.concat(stderr_data, "")
+    return { success = false, error = "curl exited with code " .. (exit_code or (result and result[1] or "unknown")) .. (err ~= "" and ": " .. err or "") }
   end
 
-  local output = vim.fn.joboutput(job_id)
+  local output = table.concat(stdout_data, "")
   if not output or vim.trim(output) == "" then
     return { success = false, error = "Provider returned empty response" }
   end
