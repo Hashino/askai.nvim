@@ -68,6 +68,14 @@ end
 function AskAI.show(toedit, response)
   if not response or not response.summary then return end
 
+  -- Trim whitespace; if truly empty, don't show an empty window
+  local trimmed = vim.trim(response.summary)
+  if trimmed == "" then
+    vim.notify("[askai.nvim] AI returned an empty response", vim.log.levels.WARN)
+    return
+  end
+  response.summary = trimmed
+
   -- close existing window
   if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
     pcall(vim.api.nvim_win_close, AskAI.win_id, true)

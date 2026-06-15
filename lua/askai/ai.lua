@@ -69,19 +69,18 @@ function AI.ask(prompt, callback)
         end
 
         local content = extract_content(decoded, is_anthropic)
-        if type(content) ~= "string" then
-          callback({ summary = "No response from AI." })
+        if type(content) ~= "string" or content == "" then
+          callback({ summary = "The AI returned an empty response. Make sure your provider and model are configured correctly." })
           return
         end
 
         -- Try to parse the content as structured JSON
         local cok, parsed = pcall(vim.json.decode, content)
-        if cok and type(parsed) == "table" and parsed.summary then
+        if cok and type(parsed) == "table" and type(parsed.summary) == "string" and parsed.summary ~= "" then
           callback(parsed)
-        elseif content then
-          callback({ summary = content })
         else
-          callback({ summary = "No response from AI." })
+          -- Use the raw content as-is (non-JSON response, or JSON without valid summary)
+          callback({ summary = content })
         end
       end)
     end,
