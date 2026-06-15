@@ -81,7 +81,12 @@ function AI.ask(prompt, callback)
 
         local content = extract_content(decoded, is_anthropic)
         if type(content) ~= "string" or content == "" then
-          callback({ summary = "The AI returned an empty response. Make sure your provider and model are configured correctly." })
+          callback({
+            summary = "The AI returned an empty response"
+              .. " (`choices` field not found or empty)."
+              .. "\n\nRaw API response:\n```json\n"
+              .. output .. "\n```",
+          })
           return
         end
 
