@@ -255,22 +255,36 @@ function AskAI.ask(question)
 
   -- build the prompt
   local prompt_parts = {}
-  table.insert(prompt_parts, "I have a question about a specific portion of this code.\n")
-
-  -- Full document first (as context)
-  table.insert(prompt_parts, "Full document (for context only, filetype: " .. filetype .. "):\n```" .. filetype .. "\n")
+  table.insert(prompt_parts, "Answer the user's question about the selected text in the context of the full document.\n")
+  table.insert(prompt_parts, "\n--- Document (filetype: " .. filetype .. ") ---\n```" .. filetype .. "\n")
   table.insert(prompt_parts, full_text)
   table.insert(prompt_parts, "\n```\n")
 
   if selected_text then
-    table.insert(prompt_parts, "\nSelected portion (the question is about THIS code):\n```" .. filetype .. "\n")
+    table.insert(prompt_parts, "\n--- Selected text (focus of the question) ---\n```" .. filetype .. "\n")
     table.insert(prompt_parts, selected_text)
     table.insert(prompt_parts, "\n```\n")
   end
 
-  table.insert(prompt_parts, "Question: " .. question .. "\n")
+  table.insert(prompt_parts, "\n--- Question ---\n")
+  table.insert(prompt_parts, question)
+  table.insert(prompt_parts, "\n")
 
-  table.insert(prompt_parts, "\nAnswer the question specifically about the selected portion. Use the full document only as context.\n")
+  table.insert(prompt_parts, [[
+Respond in JSON format with no extra commentary:
+{
+  "summary": "Answer in markdown. Include code snippets in ``` fences.",
+  "edit": {
+    "start": <0-indexed start line of the edit>,
+    "final": <0-indexed end line (exclusive) of the edit>,
+    "content": ["replacement line 1", "replacement line 2", "..."]
+  }
+}
+
+If suggesting a replacement edit, the "content" replaces lines from start to final in the document.
+If no edit is suggested, omit the "edit" field entirely.
+If the question is just informational, return only { "summary": "..." }.
+Focus your answer on the selected text (or the whole document if no selection).]])
 
   table.insert(prompt_parts, [[
 Respond in JSON format with no extra commentary:
