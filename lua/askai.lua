@@ -189,11 +189,14 @@ local function setup_highlight()
 end
 
 --- Main entry point: ask the AI a question with context.
----@param question string the question to ask the AI
+--- If called without a question, prompts via vim.fn.input().
+---@param question? string the question to ask the AI
 function AskAI.ask(question)
   if question == nil or question == "" then
-    vim.notify("[askai.nvim] No question provided", vim.log.levels.WARN)
-    return
+    question = vim.fn.input("Ask AI: ")
+    if question == "" then
+      return
+    end
   end
 
   local buf = vim.api.nvim_get_current_buf()

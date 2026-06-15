@@ -5,17 +5,8 @@
 
 local askai = require("askai")
 
--- sets up the :AskAI command
 vim.api.nvim_create_user_command("AskAI", function(args)
-  local question = args.args
-  if question == "" then
-    -- prompt for a question when not provided
-    question = vim.fn.input("Ask AI: ")
-    if question == "" then
-      return
-    end
-  end
-  askai.ask(question)
+  askai.ask(args.args)
 end, {
   range = true,
   nargs = "*",
