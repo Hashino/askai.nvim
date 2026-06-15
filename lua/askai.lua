@@ -9,7 +9,41 @@ local AskAI = {
 
   ---@type integer?
   augroup = nil,
+
+  ---@type boolean
+  _initialized = false,
 }
+
+--- Setup askai.nvim
+---@param opts? askai.Config
+--- Setup askai.nvim
+---@param opts? askai.Config
+---@return boolean true if setup succeeded
+function AskAI.setup(opts)
+  config.options = vim.tbl_deep_extend("force", config.options, opts or {})
+
+  if config.options.provider.api_url == ""
+      or config.options.provider.model == ""
+      or config.options.provider.api_key == "" then
+    vim.notify("[askai.nvim] provider.api_url, provider.model and provider.api_key must be set",
+      vim.log.levels.ERROR)
+    AskAI._initialized = false
+    return false
+  end
+
+  AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true })
+
+  for group, spec in pairs(config.options.highlights) do
+    if type(spec) == "string" then
+      pcall(vim.api.nvim_set_hl, 0, group, { link = spec })
+    elseif type(spec) == "table" then
+      pcall(vim.api.nvim_set_hl, 0, group, spec)
+    end
+  end
+
+  AskAI._initialized = true
+  return true
+end
 
 --- Extract visual selection text from the '< and '> marks.
 --- Returns nil if no valid selection exists.
@@ -58,17 +92,6 @@ local function compute_dimensions(lines)
   local width = math.min(math.max(max_line_width + 4, 40), vim.o.columns - 4)
   local height = math.min(#lines + 2, vim.o.lines - 6)
   return width, height
-end
-
---- Apply user-configured highlight groups.
-local function setup_highlights()
-  for group, spec in pairs(config.options.highlights) do
-    if type(spec) == "string" then
-      pcall(vim.api.nvim_set_hl, 0, group, { link = spec })
-    elseif type(spec) == "table" then
-      pcall(vim.api.nvim_set_hl, 0, group, spec)
-    end
-  end
 end
 
 --- Show a floating window with the AI response.
@@ -217,6 +240,11 @@ end
 --- If called without a question, prompts via vim.fn.input().
 ---@param question? string the question to ask the AI
 function AskAI.ask(question)
+  if not AskAI._initialized then
+    vim.notify("[askai.nvim] Plugin not initialized. Call askai.setup() first.", vim.log.levels.ERROR)
+    return
+  end
+
   if question == nil or question == "" then
     question = vim.fn.input("Ask AI: ")
     if question == "" then return end
@@ -282,23 +310,6 @@ Focus your answer on the selected text (or the whole document if no selection).]
       vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
     end
   end)
-end
-
---- Setup askai.nvim
----@param opts? askai.Config
-function AskAI.setup(opts)
-  config.options = vim.tbl_deep_extend("force", config.options, opts or {})
-
-  if config.options.provider.api_url == ""
-      or config.options.provider.model == ""
-      or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] provider.api_url, provider.model and provider.api_key must be set",
-      vim.log.levels.ERROR)
-    return
-  end
-
-  AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true })
-  setup_highlights()
 end
 
 return AskAI
