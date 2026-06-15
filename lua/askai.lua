@@ -100,7 +100,7 @@ function AskAI.show(toedit, response)
   win_config.width = dyn_width
   win_config.height = dyn_height
   -- reposition so it's still anchored at the bottom-right area
-  win_config.col = vim.o.columns - dyn_width - 1
+  win_config.col = vim.o.columns - dyn_width
   win_config.row = vim.o.lines - 3 - vim.o.cmdheight - dyn_height
 
   -- dismiss keymap
@@ -142,8 +142,11 @@ function AskAI.show(toedit, response)
     end,
   })
 
-  -- if there's an edit suggestion, add confirm keymap and winbar hint
-  if response.edit then
+  -- if there's a valid edit suggestion, add confirm keymap and winbar hint
+  if response.edit
+      and type(response.edit.start) == "number"
+      and type(response.edit.final) == "number"
+      and type(response.edit.content) == "table" then
     vim.keymap.set("n", config.options.keys.confirm, function()
       pcall(vim.api.nvim_win_close, AskAI.win_id, true)
       AskAI.win_id = nil
