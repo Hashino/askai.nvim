@@ -95,9 +95,6 @@ function AskAI.show(toedit, response)
 
   -- compute dynamic dimensions from content
   local win_config = vim.deepcopy(config.options.win_config)
-
-  -- apply user-configured highlight groups to the floating window
-  win_config.winhl = "Normal:AskaiNormal,Border:AskaiBorder,WinBar:AskaiWinbar"
   local dyn_width, dyn_height = compute_dimensions(summary_lines)
   win_config.width = dyn_width
   win_config.height = dyn_height
@@ -113,7 +110,27 @@ function AskAI.show(toedit, response)
     end
   end, { buffer = buf })
 
+  -- Only pass keys valid for nvim_open_win; apply window-local options after
+  local open_win_valid = {
+    relative = true, win = true, bufpos = true, width = true, height = true,
+    row = true, col = true, zindex = true, style = true, border = true,
+    title = true, title_pos = true, footer = true, footer_pos = true,
+    noautocmd = true, fixed = true, anchor = true, focusable = true,
+  }
+  local post_opts = {}
+  for k, v in pairs(win_config) do
+    if not open_win_valid[k] then
+      post_opts[k] = v
+      win_config[k] = nil
+    end
+  end
+
   AskAI.win_id = vim.api.nvim_open_win(buf, true, win_config)
+
+  -- Apply window-local options that aren't valid for nvim_open_win
+  for k, v in pairs(post_opts) do
+    pcall(vim.api.nvim_set_option_value, k, v, { win = AskAI.win_id })
+  end
 
   -- clean up when the window is closed manually (e.g. :q)
   vim.api.nvim_create_autocmd("WinClosed", {
