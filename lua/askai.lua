@@ -95,6 +95,9 @@ function AskAI.show(toedit, response)
 
   -- compute dynamic dimensions from content
   local win_config = vim.deepcopy(config.options.win_config)
+
+  -- apply user-configured highlight groups to the floating window
+  win_config.winhl = "Normal:AskaiNormal,Border:AskaiBorder,WinBar:AskaiWinbar"
   local dyn_width, dyn_height = compute_dimensions(summary_lines)
   win_config.width = dyn_width
   win_config.height = dyn_height
@@ -163,7 +166,7 @@ local function show_spinner()
     noautocmd = true,
   })
 
-  vim.api.nvim_set_option_value("winhl", "Normal:Spinner", { win = AskAI.spinner_win })
+  vim.api.nvim_set_option_value("winhl", "Normal:AskaiSpinner", { win = AskAI.spinner_win })
 
   AskAI.spinner_idx = 1
   AskAI.spinner_timer = vim.uv.new_timer()
@@ -191,9 +194,15 @@ local function hide_spinner()
   end
 end
 
---- Set up a highlight group for the spinner.
+--- Create all user-configured highlight groups.
 local function setup_highlight()
-  pcall(vim.api.nvim_set_hl, 0, "Spinner", { fg = "#89b4fa", bold = true })
+  for group, spec in pairs(config.options.highlights) do
+    if type(spec) == "string" then
+      pcall(vim.api.nvim_set_hl, 0, group, { link = spec })
+    elseif type(spec) == "table" then
+      pcall(vim.api.nvim_set_hl, 0, group, spec)
+    end
+  end
 end
 
 --- Main entry point: ask the AI a question with context.

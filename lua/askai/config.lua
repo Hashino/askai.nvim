@@ -24,6 +24,18 @@ Config.options = {
   spinner_characters = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" },
   spinner_interval_ms = 80,
 
+  ---@class askai.Config.Highlights
+  ---@field AskaiNormal? table|string highlight for the floating window background/text (table of args or link string)
+  ---@field AskaiBorder? table|string highlight for the floating window border
+  ---@field AskaiWinbar? table|string highlight for the winbar text
+  ---@field AskaiSpinner? table|string highlight for the loading spinner
+  highlights = {
+    AskaiNormal = { link = "NormalFloat" },
+    AskaiBorder = { fg = "#89b4fa" },
+    AskaiWinbar = { link = "WinBar" },
+    AskaiSpinner = { fg = "#89b4fa", bold = true },
+  },
+
   -- see :h nvim_open_win() for available options
   win_config = {
     relative = "editor",

@@ -42,7 +42,7 @@ end
 function AI.ask(prompt, callback)
   local headers, body, is_anthropic = build_request(prompt)
 
-  local cmd = { "curl", "-s", "-X", "POST", config.options.provider.api_url }
+  local cmd = { "curl", "-sS", "-X", "POST", config.options.provider.api_url }
   for k, v in pairs(headers) do
     table.insert(cmd, "-H")
     table.insert(cmd, k .. ": " .. v)
@@ -62,9 +62,20 @@ function AI.ask(prompt, callback)
         done = true
 
         local output = table.concat(data, "")
+
+        -- Empty output means curl couldn't reach the API or got no response
+        if output == nil or vim.trim(output) == "" then
+          callback({
+            summary = "The AI provider returned an empty response.\n\n"
+              .. "Check that your **api_url** is correct and your network can reach it."
+              .. "\n\nCurrent url: `" .. config.options.provider.api_url .. "`",
+          })
+          return
+        end
+
         local ok, decoded = pcall(vim.json.decode, output)
         if not ok then
-          callback({ summary = tostring(output) })
+          callback({ summary = "Could not parse API response:\n```\n" .. output .. "\n```" })
           return
         end
 
