@@ -90,8 +90,9 @@ function AskAI.show(toedit, response)
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, summary_lines)
 
-  -- markdown syntax highlighting
+  -- markdown syntax highlighting (if treesitter is available, use filetype instead)
   vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf })
+  vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf })
 
   -- compute dynamic dimensions from content
   local win_config = vim.deepcopy(config.options.win_config)
