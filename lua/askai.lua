@@ -255,18 +255,22 @@ function AskAI.ask(question)
 
   -- build the prompt
   local prompt_parts = {}
-  table.insert(prompt_parts, "I have a question about this code.\n")
-  table.insert(prompt_parts, "Question: " .. question .. "\n")
+  table.insert(prompt_parts, "I have a question about a specific portion of this code.\n")
+
+  -- Full document first (as context)
+  table.insert(prompt_parts, "Full document (for context only, filetype: " .. filetype .. "):\n```" .. filetype .. "\n")
+  table.insert(prompt_parts, full_text)
+  table.insert(prompt_parts, "\n```\n")
 
   if selected_text then
-    table.insert(prompt_parts, "Context: the user selected this portion of the document:\n```" .. filetype .. "\n")
+    table.insert(prompt_parts, "\nSelected portion (the question is about THIS code):\n```" .. filetype .. "\n")
     table.insert(prompt_parts, selected_text)
     table.insert(prompt_parts, "\n```\n")
   end
 
-  table.insert(prompt_parts, "```" .. filetype .. "\n")
-  table.insert(prompt_parts, full_text)
-  table.insert(prompt_parts, "\n```\n")
+  table.insert(prompt_parts, "Question: " .. question .. "\n")
+
+  table.insert(prompt_parts, "\nAnswer the question specifically about the selected portion. Use the full document only as context.\n")
 
   table.insert(prompt_parts, [[
 Respond in JSON format with no extra commentary:
