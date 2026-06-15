@@ -2,6 +2,9 @@ local config = require("askai.config")
 
 local AI = {}
 
+---@param body table decoded API response body
+---@param is_anthropic boolean whether the provider is Anthropic
+---@return string|nil the text content from the response
 local function extract_content(body, is_anthropic)
   if is_anthropic then
     return body.content and body.content[1] and body.content[1].text
@@ -10,8 +13,10 @@ local function extract_content(body, is_anthropic)
   end
 end
 
+---@param prompt string the prompt to send
+---@return table headers, string body, boolean is_anthropic
 local function build_request(prompt)
-  local is_anthropic = config.options.provider.api_url:find("anthropic%.com")
+  local is_anthropic = config.options.provider.api_url:find("anthropic%.com", 1, true)
 
   local headers = { ["Content-Type"] = "application/json" }
   local body
@@ -67,8 +72,8 @@ function AI.ask(prompt, callback)
         if output == nil or vim.trim(output) == "" then
           callback({
             summary = "The AI provider returned an empty response.\n\n"
-              .. "Check that your **api_url** is correct and your network can reach it."
-              .. "\n\nCurrent url: `" .. config.options.provider.api_url .. "`",
+              .. "Check that your **api_url** is correct and your network can reach it.\n\n"
+              .. "Current url: `" .. config.options.provider.api_url .. "`",
           })
           return
         end
@@ -82,10 +87,9 @@ function AI.ask(prompt, callback)
         local content = extract_content(decoded, is_anthropic)
         if type(content) ~= "string" or content == "" then
           callback({
-            summary = "The AI returned an empty response"
-              .. " (`choices` field not found or empty)."
-              .. "\n\nRaw API response:\n```json\n"
-              .. output .. "\n```",
+            summary = "The AI returned an empty response "
+              .. "(`choices` field not found or empty).\n\n"
+              .. "Raw API response:\n```json\n" .. output .. "\n```",
           })
           return
         end

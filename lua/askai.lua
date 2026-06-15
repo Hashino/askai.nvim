@@ -6,9 +6,12 @@ local AskAI = {
   spinner_win = nil,
   spinner_timer = nil,
   spinner_idx = 1,
+
+  ---@type integer?
+  augroup = nil,
 }
 
---- Get the visual selection text from the '< and '> marks.
+--- Extract visual selection text from the '< and '> marks.
 --- Returns nil if no valid selection exists.
 ---@param buf integer buffer handle
 ---@return string|nil
@@ -19,14 +22,9 @@ local function get_visual_selection(buf)
   local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
   local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
 
-  if start_pos[1] == 0 and end_pos[1] == 0 then
-    return nil
-  end
+  if start_pos[1] == 0 and end_pos[1] == 0 then return nil end
 
-  if mode == "V" then
-    -- linewise: extend start to column 0
-    start_pos[2] = 0
-  end
+  if mode == "V" then start_pos[2] = 0 end
 
   -- normalize so start <= end
   if start_pos[1] > end_pos[1] or (start_pos[1] == end_pos[1] and start_pos[2] > end_pos[2]) then
@@ -49,17 +47,28 @@ local function get_visual_selection(buf)
   return table.concat(lines, "\n")
 end
 
---- Compute a sensible width/height that fits the content while staying within bounds.
+--- Compute window dimensions that fit content within editor bounds.
+---@param lines string[] content lines
+---@return integer width, integer height
 local function compute_dimensions(lines)
   local max_line_width = 0
   for _, l in ipairs(lines) do
     max_line_width = math.max(max_line_width, vim.fn.strdisplaywidth(l))
   end
-
   local width = math.min(math.max(max_line_width + 4, 40), vim.o.columns - 4)
   local height = math.min(#lines + 2, vim.o.lines - 6)
-
   return width, height
+end
+
+--- Apply user-configured highlight groups.
+local function setup_highlights()
+  for group, spec in pairs(config.options.highlights) do
+    if type(spec) == "string" then
+      pcall(vim.api.nvim_set_hl, 0, group, { link = spec })
+    elseif type(spec) == "table" then
+      pcall(vim.api.nvim_set_hl, 0, group, spec)
+    end
+  end
 end
 
 --- Show a floating window with the AI response.
@@ -76,7 +85,7 @@ function AskAI.show(toedit, response)
   end
   response.summary = trimmed
 
-  -- close existing window
+  -- Close existing window
   if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
     pcall(vim.api.nvim_win_close, AskAI.win_id, true)
     AskAI.win_id = nil
@@ -87,23 +96,21 @@ function AskAI.show(toedit, response)
   vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
 
   local summary_lines = vim.split(response.summary, "\n", { plain = true })
-
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, summary_lines)
 
-  -- markdown syntax highlighting (if treesitter is available, use filetype instead)
+  -- Markdown syntax highlighting
   vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf })
   vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf })
 
-  -- compute dynamic dimensions from content
+  -- Compute dynamic dimensions from content
   local win_config = vim.deepcopy(config.options.win_config)
   local dyn_width, dyn_height = compute_dimensions(summary_lines)
   win_config.width = dyn_width
   win_config.height = dyn_height
-  -- reposition so it's still anchored at the bottom-right area
   win_config.col = vim.o.columns - dyn_width
   win_config.row = vim.o.lines - 3 - vim.o.cmdheight - dyn_height
 
-  -- dismiss keymap
+  -- Dismiss keymap
   vim.keymap.set("n", config.options.keys.dismiss, function()
     if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
       pcall(vim.api.nvim_win_close, AskAI.win_id, true)
@@ -133,28 +140,22 @@ function AskAI.show(toedit, response)
     pcall(vim.api.nvim_set_option_value, k, v, { win = AskAI.win_id })
   end
 
-  -- clean up when the window is closed manually (e.g. :q)
+  -- Clean up when the window is closed manually (e.g. :q)
   vim.api.nvim_create_autocmd("WinClosed", {
     buffer = buf,
     once = true,
-    callback = function()
-      AskAI.win_id = nil
-    end,
+    callback = function() AskAI.win_id = nil end,
   })
 
-  -- if there's a valid edit suggestion, add confirm keymap and winbar hint
-  if response.edit
-      and type(response.edit.start) == "number"
-      and type(response.edit.final) == "number"
-      and type(response.edit.content) == "table" then
+  -- If there's a valid edit suggestion, add confirm keymap and winbar hint
+  local edit = response.edit
+  if edit and type(edit.start) == "number" and type(edit.final) == "number" and type(edit.content) == "table" then
     vim.keymap.set("n", config.options.keys.confirm, function()
       pcall(vim.api.nvim_win_close, AskAI.win_id, true)
       AskAI.win_id = nil
-      if not (vim.api.nvim_buf_is_valid(toedit) and vim.api.nvim_buf_is_loaded(toedit)) then
-        return
+      if vim.api.nvim_buf_is_valid(toedit) and vim.api.nvim_buf_is_loaded(toedit) then
+        vim.api.nvim_buf_set_lines(toedit, edit.start, edit.final, false, edit.content)
       end
-      vim.api.nvim_buf_set_lines(toedit, response.edit.start, response.edit.final, false,
-        response.edit.content)
     end, { buffer = buf })
 
     vim.api.nvim_set_option_value("winbar",
@@ -170,17 +171,14 @@ end
 
 --- Braille spinner animation (bottom-right corner, fidget.nvim style).
 local function show_spinner()
-  if AskAI.spinner_win and vim.api.nvim_win_is_valid(AskAI.spinner_win) then
-    return -- already showing
-  end
+  if AskAI.spinner_win and vim.api.nvim_win_is_valid(AskAI.spinner_win) then return end
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { config.options.spinner_characters[1] })
 
   AskAI.spinner_win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = 1,
-    height = 1,
+    width = 1, height = 1,
     row = vim.o.lines - 3 - vim.o.cmdheight,
     col = vim.o.columns - 2,
     style = "minimal",
@@ -190,17 +188,17 @@ local function show_spinner()
   vim.api.nvim_set_option_value("winhl", "Normal:AskaiSpinner", { win = AskAI.spinner_win })
 
   AskAI.spinner_idx = 1
-  AskAI.spinner_timer = vim.uv.new_timer()
-  AskAI.spinner_timer:start(config.options.spinner_interval_ms,
-    config.options.spinner_interval_ms, vim.schedule_wrap(function()
-      if not AskAI.spinner_win or not vim.api.nvim_win_is_valid(AskAI.spinner_win) then
-        return
-      end
-      AskAI.spinner_idx = (AskAI.spinner_idx % #config.options.spinner_characters) + 1
-      local spinner_buf = vim.api.nvim_win_get_buf(AskAI.spinner_win)
-      vim.api.nvim_buf_set_lines(spinner_buf, 0, -1, false,
-        { config.options.spinner_characters[AskAI.spinner_idx] })
-    end))
+  AskAI.spinner_timer = vim.loop.new_timer()
+  if AskAI.spinner_timer then
+    AskAI.spinner_timer:start(config.options.spinner_interval_ms, config.options.spinner_interval_ms,
+      vim.schedule_wrap(function()
+        if not AskAI.spinner_win or not vim.api.nvim_win_is_valid(AskAI.spinner_win) then return end
+        AskAI.spinner_idx = (AskAI.spinner_idx % #config.options.spinner_characters) + 1
+        local spinner_buf = vim.api.nvim_win_get_buf(AskAI.spinner_win)
+        vim.api.nvim_buf_set_lines(spinner_buf, 0, -1, false,
+          { config.options.spinner_characters[AskAI.spinner_idx] })
+      end))
+  end
 end
 
 local function hide_spinner()
@@ -215,35 +213,22 @@ local function hide_spinner()
   end
 end
 
---- Create all user-configured highlight groups.
-local function setup_highlight()
-  for group, spec in pairs(config.options.highlights) do
-    if type(spec) == "string" then
-      pcall(vim.api.nvim_set_hl, 0, group, { link = spec })
-    elseif type(spec) == "table" then
-      pcall(vim.api.nvim_set_hl, 0, group, spec)
-    end
-  end
-end
-
 --- Main entry point: ask the AI a question with context.
 --- If called without a question, prompts via vim.fn.input().
 ---@param question? string the question to ask the AI
 function AskAI.ask(question)
   if question == nil or question == "" then
     question = vim.fn.input("Ask AI: ")
-    if question == "" then
-      return
-    end
+    if question == "" then return end
   end
 
   local buf = vim.api.nvim_get_current_buf()
   if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then return end
 
-  -- get visual selection if any
+  -- Get visual selection if any
   local selected_text = get_visual_selection(buf)
 
-  -- get full document text (truncated to avoid token limits)
+  -- Get full document text (truncated to avoid token limits)
   local full_doc = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local full_text = table.concat(full_doc, "\n")
   local max_ctx = config.options.max_context_size
@@ -253,7 +238,7 @@ function AskAI.ask(question)
   end
   local filetype = vim.bo[buf].filetype
 
-  -- build the prompt
+  -- Build the prompt
   local prompt_parts = {}
   table.insert(prompt_parts, "Answer the user's question about the selected text in the context of the full document.\n")
   table.insert(prompt_parts, "\n--- Document (filetype: " .. filetype .. ") ---\n```" .. filetype .. "\n")
@@ -286,27 +271,9 @@ If no edit is suggested, omit the "edit" field entirely.
 If the question is just informational, return only { "summary": "..." }.
 Focus your answer on the selected text (or the whole document if no selection).]])
 
-  table.insert(prompt_parts, [[
-Respond in JSON format with no extra commentary:
-
-{
-  "summary": "Answer in markdown. Include code snippets in ``` fences.",
-  "edit": {
-    "start": <0-indexed start line of the edit>,
-    "final": <0-indexed end line (exclusive) of the edit>,
-    "content": ["replacement line 1", "replacement line 2", "..."]
-  }
-}
-
-If suggesting a replacement edit, the "content" replaces lines from start to final in the document.
-If no edit is suggested, omit the "edit" field entirely.]])
-
   local prompt = table.concat(prompt_parts, "\n")
 
-  -- show spinner
   show_spinner()
-
-  -- make the AI request
   ai.ask(prompt, function(response)
     hide_spinner()
     if response and response.summary then
@@ -330,7 +297,8 @@ function AskAI.setup(opts)
     return
   end
 
-  setup_highlight()
+  AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true })
+  setup_highlights()
 end
 
 return AskAI

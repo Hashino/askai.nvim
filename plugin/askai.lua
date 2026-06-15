@@ -11,4 +11,9 @@ end, {
   range = true,
   nargs = "*",
   desc = "Ask AI about the current document and visual selection",
+  complete = function(_, cmd_line)
+    if #vim.split(cmd_line, "%s+", { trimempty = true }) <= 1 then
+      return {}
+    end
+  end,
 })
