@@ -19,6 +19,19 @@ local AskAI = {
 function AskAI.setup(opts)
   config.options = vim.tbl_deep_extend("force", config.options, opts or {})
 
+  -- Ensure win_config always has required fields (user can override but not remove)
+  local default_win_config = {
+    relative = "editor",
+    width = 75,
+    height = 25,
+    col = vim.o.columns - 75,
+    row = vim.o.lines - 3 - vim.o.cmdheight - 25,
+    style = "minimal",
+    border = "rounded",
+    noautocmd = true,
+  }
+  config.options.win_config = vim.tbl_deep_extend("force", default_win_config, config.options.win_config or {})
+
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then

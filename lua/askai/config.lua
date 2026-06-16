@@ -6,7 +6,7 @@ local WIDTH = 75
 ---@class askai.Config
 ---@field provider askai.Config.Provider provider options for the AI
 ---@field keys? askai.Config.Keys keymaps for the suggestion window
----@field win_config table window config for the suggestion window (see :h nvim_open_win())
+---@field win_config? table window config for the suggestion window (see :h nvim_open_win())
 ---@field spinner_characters? string[] characters for the loading spinner animation
 ---@field spinner_interval_ms? number interval in ms between spinner frames
 ---@field max_context_size? integer maximum characters of document context to send
