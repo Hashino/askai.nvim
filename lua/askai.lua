@@ -163,12 +163,12 @@ function AskAI.show(toedit, response)
     end, { buffer = buf })
 
     vim.api.nvim_set_option_value("winbar",
-      string.format(" %s to accept | %s to dismiss",
+      string.format(" [AskAI] %s to accept | %s to dismiss",
         config.options.keys.confirm, config.options.keys.dismiss),
       { win = AskAI.win_id })
   else
     vim.api.nvim_set_option_value("winbar",
-      string.format(" %s to dismiss", config.options.keys.dismiss),
+      string.format(" [AskAI] %s to dismiss", config.options.keys.dismiss),
       { win = AskAI.win_id })
   end
 end
@@ -268,7 +268,7 @@ function AskAI.ask(question)
   table.insert(prompt_parts, [[
 Respond in JSON format with no extra commentary:
 {
-  "summary": "A concise summary of the edit being suggested, including a code snippet showing the resulting code after the edit is applied. Use markdown with ``` fences for code.",
+  "summary": "If the user asks to DO something (refactor, fix, change, add, etc.), describe WHAT WILL BE CHANGED in future tense, and include a markdown code snippet showing the resulting code AFTER the edit. If the question is informational, explain the answer. Use markdown with ``` fences for code.",
   "edit": {
     "start": <0-indexed start line of the edit>,
     "final": <0-indexed end line (exclusive) of the edit>,
@@ -276,9 +276,8 @@ Respond in JSON format with no extra commentary:
   }
 }
 
-If suggesting a replacement edit, the "content" replaces lines from start to final in the document.
-If no edit is suggested, omit the "edit" field entirely.
-If the question is just informational, return only { "summary": "..." } with an explanation.
+If the user asks to do something (refactor, fix, change, add, etc.), include the "edit" field with the exact change.
+If the question is just informational, omit the "edit" field and return only { "summary": "..." }.
 Focus your answer on the selected text (or the whole document if no selection).]])
 
   local prompt = table.concat(prompt_parts, "\n")
