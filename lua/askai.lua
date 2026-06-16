@@ -111,6 +111,8 @@ function AskAI.show(toedit, response)
   if not response or not response.summary then return end
 
   -- Trim whitespace; if truly empty, don't show an empty window
+  -- Convert escaped \n sequences to actual newlines
+  response.summary = response.summary:gsub('\\\\n', '\n')
   local trimmed = vim.trim(response.summary)
   if trimmed == "" then
     vim.notify("[askai.nvim] AI returned an empty response", vim.log.levels.WARN)
@@ -134,14 +136,10 @@ function AskAI.show(toedit, response)
   -- Markdown syntax highlighting
   vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf })
   vim.api.nvim_set_option_value("syntax",   "markdown", { buf = buf })
-  -- Trigger FileType autocommands (e.g., to load markdown fenced‑language syntax or Tree‑sitter)
-  vim.api.nvim_buf_call(buf, function()
-    vim.cmd('doautocmd FileType markdown')
-    -- Start Tree‑sitter highlighting for markdown if available
-    if vim.treesitter and vim.treesitter.start then
-      pcall(vim.treesitter.start, buf, 'markdown')
-    end
-  end)
+  -- Start Tree‑sitter highlighting for markdown (if available)
+  if vim.treesitter and vim.treesitter.start then
+    pcall(vim.treesitter.start, buf, 'markdown')
+  end
 
   -- Compute dynamic dimensions from content
   local win_config = config.options.win_config
@@ -281,7 +279,7 @@ function AskAI.ask(question)
   table.insert(prompt_parts, [[
 Respond in JSON format with no extra commentary:
 {
-  "summary": "If the user asks to DO something (refactor, fix, change, add, etc.), describe WHAT WILL BE CHANGED in future tense, and include a markdown code snippet showing the resulting code AFTER the edit. If the question is informational, explain the answer. Use markdown with ```<language> fences for code, where <language> matches the filetype of the edited code.",
+  "summary": "If the user asks to DO something (refactor, fix, change, add, etc.), describe WHAT WILL BE CHANGED in future tense, and include a fenced code block with the language annotated **inside the summary** showing the resulting code AFTER the edit. If the question is informational, explain the answer. Use markdown with ```<language> fences for code, where <language> matches the filetype of the edited code. You **MUST** include a fenced code block (annotated with the filetype) that shows the code **after** the edit. Insert newline characters (\\n) in the summary to separate sections (e.g., description and the fenced code block) and improve its readability."
   "edit": {
     "start": <0-indexed start line of the edit>,
     "final": <0-indexed end line (exclusive) of the edit>,
