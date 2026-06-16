@@ -144,6 +144,7 @@ function AskAI.show(toedit, response)
   vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf })
 
   -- Compute dynamic dimensions from content
+  ---@cast win_config table
   local win_config = vim.deepcopy(config.options.win_config)
   local dyn_width, dyn_height = compute_dimensions(summary_lines)
   win_config.width = dyn_width
@@ -161,10 +162,24 @@ function AskAI.show(toedit, response)
 
   -- Only pass keys valid for nvim_open_win; apply window-local options after
   local open_win_valid = {
-    relative = true, win = true, bufpos = true, width = true, height = true,
-    row = true, col = true, zindex = true, style = true, border = true,
-    title = true, title_pos = true, footer = true, footer_pos = true,
-    noautocmd = true, fixed = true, anchor = true, focusable = true,
+    relative = true,
+    win = true,
+    bufpos = true,
+    width = true,
+    height = true,
+    row = true,
+    col = true,
+    zindex = true,
+    style = true,
+    border = true,
+    title = true,
+    title_pos = true,
+    footer = true,
+    footer_pos = true,
+    noautocmd = true,
+    fixed = true,
+    anchor = true,
+    focusable = true,
   }
   local post_opts = {}
   for k, v in pairs(win_config) do
@@ -219,7 +234,8 @@ local function show_spinner()
 
   AskAI.spinner_win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = 1, height = 1,
+    width = 1,
+    height = 1,
     row = vim.o.lines - 3 - vim.o.cmdheight,
     col = vim.o.columns - 2,
     style = "minimal",
@@ -280,7 +296,7 @@ function AskAI.ask(question)
   local max_ctx = config.options.max_context_size
   if #full_text > max_ctx then
     full_text = string.sub(full_text, 1, max_ctx)
-      .. "\n\n-- [[ ... truncated to " .. max_ctx .. " characters ... ]]"
+        .. "\n\n-- [[ ... truncated to " .. max_ctx .. " characters ... ]]"
   end
   local filetype = vim.bo[buf].filetype
 
