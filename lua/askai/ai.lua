@@ -37,6 +37,7 @@ local function build_request(prompt)
     })
   end
 
+---@diagnostic disable-next-line: return-type-mismatch
   return headers, body, is_anthropic
 end
 
