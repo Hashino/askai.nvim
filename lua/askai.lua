@@ -32,10 +32,15 @@ function AskAI.setup(opts)
   }
   config.options.win_config = vim.tbl_deep_extend("force", default_win_config, config.options.win_config or {})
 
+  -- Ensure fenced‑language highlighting works for markdown code blocks
+  if vim.g.markdown_fenced_languages == nil then
+    vim.g.markdown_fenced_languages = { 'lua', 'python', 'bash=sh', 'js=javascript', 'json', 'yaml', 'html', 'css' }
+  end
+
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] 🚨 provider.api_url, provider.model and provider.api_key must be set 🚨",
+    vim.notify("[askai.nvim] provider.api_url, provider.model and provider.api_key must be set",
       vim.log.levels.ERROR)
     AskAI._initialized = false
     return
@@ -127,8 +132,16 @@ function AskAI.show(toedit, response)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, summary_lines)
 
   -- Markdown syntax highlighting
-  vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf })
   vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf })
+  vim.api.nvim_set_option_value("syntax",   "markdown", { buf = buf })
+  -- Trigger FileType autocommands (e.g., to load markdown fenced‑language syntax or Tree‑sitter)
+  vim.api.nvim_buf_call(buf, function()
+    vim.cmd('doautocmd FileType markdown')
+    -- Start Tree‑sitter highlighting for markdown if available
+    if vim.treesitter and vim.treesitter.start then
+      pcall(vim.treesitter.start, buf, 'markdown')
+    end
+  end)
 
   -- Compute dynamic dimensions from content
   local win_config = config.options.win_config
@@ -268,7 +281,7 @@ function AskAI.ask(question)
   table.insert(prompt_parts, [[
 Respond in JSON format with no extra commentary:
 {
-  "summary": "If the user asks to DO something (refactor, fix, change, add, etc.), describe WHAT WILL BE CHANGED in future tense, and include a markdown code snippet showing the resulting code AFTER the edit. If the question is informational, explain the answer. Use markdown with ``` fences for code.",
+  "summary": "If the user asks to DO something (refactor, fix, change, add, etc.), describe WHAT WILL BE CHANGED in future tense, and include a markdown code snippet showing the resulting code AFTER the edit. If the question is informational, explain the answer. Use markdown with ```<language> fences for code, where <language> matches the filetype of the edited code.",
   "edit": {
     "start": <0-indexed start line of the edit>,
     "final": <0-indexed end line (exclusive) of the edit>,
