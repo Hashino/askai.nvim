@@ -35,7 +35,7 @@ function AskAI.setup(opts)
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] provider.api_url, provider.model and provider.api_key must be set",
+    vim.notify("[askai.nvim] 🚨 provider.api_url, provider.model and provider.api_key must be set 🚨",
       vim.log.levels.ERROR)
     AskAI._initialized = false
     return
@@ -97,19 +97,6 @@ local function get_visual_selection(buf)
   end
 
   return table.concat(lines, "\n")
-end
-
---- Compute window dimensions that fit content within editor bounds.
----@param lines string[] content lines
----@return integer width, integer height
-local function compute_dimensions(lines)
-  local max_line_width = 0
-  for _, l in ipairs(lines) do
-    max_line_width = math.max(max_line_width, vim.fn.strdisplaywidth(l))
-  end
-  local width = math.min(math.max(max_line_width + 4, 40), vim.o.columns - 4)
-  local height = math.min(#lines + 2, vim.o.lines - 6)
-  return width, height
 end
 
 --- Show a floating window with the AI response.
@@ -281,7 +268,7 @@ function AskAI.ask(question)
   table.insert(prompt_parts, [[
 Respond in JSON format with no extra commentary:
 {
-  "summary": "Answer in markdown. Include code snippets in ``` fences.",
+  "summary": "A concise summary of the edit being suggested, including a code snippet showing the resulting code after the edit is applied. Use markdown with ``` fences for code.",
   "edit": {
     "start": <0-indexed start line of the edit>,
     "final": <0-indexed end line (exclusive) of the edit>,
@@ -291,7 +278,7 @@ Respond in JSON format with no extra commentary:
 
 If suggesting a replacement edit, the "content" replaces lines from start to final in the document.
 If no edit is suggested, omit the "edit" field entirely.
-If the question is just informational, return only { "summary": "..." }.
+If the question is just informational, return only { "summary": "..." } with an explanation.
 Focus your answer on the selected text (or the whole document if no selection).]])
 
   local prompt = table.concat(prompt_parts, "\n")
