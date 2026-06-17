@@ -14,6 +14,33 @@ local AskAI  = {
   _initialized = false,
 }
 
+--- Apply edit(s) to a buffer. Validates oldString uniqueness, replaces all
+--- edits in memory first, then writes the buffer once (single undo point).
+---@param buf integer
+---@param edits { oldString: string, newString: string }[]
+---@return boolean ok
+---@return string? err
+local function apply_edits(buf, edits)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local content = table.concat(lines, "\n")
+
+  for _, e in ipairs(edits) do
+    local first = content:find(e.oldString, 1, true)
+    if not first then
+      return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
+    end
+    local second = content:find(e.oldString, first + 1, true)
+    if second then
+      return false, "oldString appears multiple times; provide more context"
+    end
+    content = content:sub(1, first - 1) .. e.newString .. content:sub(first + #e.oldString)
+  end
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+    vim.split(content, "\n", { plain = true, }))
+  return true
+end
+
 --- Setup askai.nvim
 ---@param opts? askai.Config
 function AskAI.setup(opts)
@@ -22,7 +49,8 @@ function AskAI.setup(opts)
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set", vim.log.levels.ERROR)
+    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set",
+      vim.log.levels.ERROR)
     AskAI._initialized = false
     return
   end
@@ -49,18 +77,47 @@ function AskAI.setup(opts)
   AskAI._initialized = true
 end
 
---- Show a floating window with the AI response.
+--- Show a floating window with the AI response or diff preview.
 ---@param toedit integer buffer to apply edits to
----@param response { summary: string, edit?: { start: integer, final: integer, content: string[] } }
+---@param response { summary?: string, edit?: { oldString: string, newString: string }, edits?: { oldString: string, newString: string }[] }
 function AskAI.show(toedit, response)
-  if not response or not response.summary then return end
+  if not response then return end
+  if not response.summary and not response.edit and not response.edits then return end
 
-  local trimmed = vim.trim(response.summary)
+  -- Collect edits and build window content
+  local edits = {}
+  local content_str
+
+  if response.edit then
+    edits = { response.edit, }
+  elseif response.edits then
+    edits = response.edits
+  end
+
+  if #edits > 0 then
+    local parts = {}
+    for i, e in ipairs(edits) do
+      if i > 1 then table.insert(parts, "") end
+      table.insert(parts, "─── Change " .. i .. " ─────────────────")
+      table.insert(parts, "")
+      for _, l in ipairs(vim.split(e.oldString, "\n", { plain = true, })) do
+        table.insert(parts, "- " .. l)
+      end
+      for _, l in ipairs(vim.split(e.newString, "\n", { plain = true, })) do
+        table.insert(parts, "+ " .. l)
+      end
+    end
+    content_str = table.concat(parts, "\n")
+  else
+    content_str = response.summary
+  end
+
+  local trimmed = vim.trim(content_str)
   if trimmed == "" then
     vim.notify("[askai.nvim] AI returned an empty response", vim.log.levels.WARN)
     return
   end
-  response.summary = trimmed
+  content_str = trimmed
 
   if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
     pcall(vim.api.nvim_win_close, AskAI.win_id, true)
@@ -71,17 +128,34 @@ function AskAI.show(toedit, response)
   vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf, })
   vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf, })
 
-  local summary_lines = vim.split(response.summary, "\n", { plain = true, })
+  local summary_lines = vim.split(content_str, "\n", { plain = true, })
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, summary_lines)
 
-  vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf, })
-  vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf, })
-  vim.api.nvim_buf_call(buf, function()
-    vim.cmd("doautocmd FileType markdown")
-    if vim.treesitter and vim.treesitter.start then
-      pcall(vim.treesitter.start, buf, "markdown")
+  -- Apply diff highlights when showing edits
+  if #edits > 0 then
+    local ns = vim.api.nvim_create_namespace("askai_diff")
+    local lines = vim.split(content_str, "\n", { plain = true, })
+    for i, line in ipairs(lines) do
+      if line:match("^%- ") then
+        vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
+          hl_group = "AskaiDiffDelete",
+        })
+      elseif line:match("^%+ ") then
+        vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
+          hl_group = "AskaiDiffAdd",
+        })
+      end
     end
-  end)
+  else
+    vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf, })
+    vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf, })
+    vim.api.nvim_buf_call(buf, function()
+      vim.cmd("doautocmd FileType markdown")
+      if vim.treesitter and vim.treesitter.start then
+        pcall(vim.treesitter.start, buf, "markdown")
+      end
+    end)
+  end
 
   vim.keymap.set("n", config.options.keys.dismiss, function()
     if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
@@ -99,16 +173,16 @@ function AskAI.show(toedit, response)
     callback = function() AskAI.win_id = nil end,
   })
 
-  local edit = response.edit
-  if edit and type(edit.start) == "number" and type(edit.final) == "number"
-      and type(edit.content) == "table" then
+  if #edits > 0 then
     vim.keymap.set("n", config.options.keys.confirm, function()
       pcall(vim.api.nvim_win_close, AskAI.win_id, true)
       AskAI.win_id = nil
       if vim.api.nvim_buf_is_valid(toedit)
           and vim.api.nvim_buf_is_loaded(toedit) then
-        vim.api.nvim_buf_set_lines(toedit, edit.start, edit.final, false,
-          edit.content)
+        local ok, err = apply_edits(toedit, edits)
+        if not ok then
+          vim.notify(err, vim.log.levels.ERROR)
+        end
       end
     end, { buffer = buf, })
 
@@ -143,7 +217,7 @@ function AskAI.ask(question)
     return
   end
 
-  local selected_text, sel_start_line = utils.get_visual_selection(buf)
+  local selected_text = utils.get_visual_selection(buf)
   selected_text = selected_text or ""
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
@@ -154,12 +228,11 @@ function AskAI.ask(question)
   ai.ask_with_tools({
     question = question,
     selected_text = selected_text,
-    sel_start_line = sel_start_line,
     full_file = full_file,
     filetype = filetype,
   }, function(resp)
     utils.hide_spinner()
-    if resp and resp.summary then
+    if resp and (resp.summary or resp.edit or resp.edits) then
       AskAI.show(buf, resp)
     else
       vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)

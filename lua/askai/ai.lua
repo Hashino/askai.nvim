@@ -11,7 +11,14 @@ local AI = {}
 ---@return string|nil
 local function extract_content(body, is_anthropic)
   if is_anthropic then
-    return body.content and body.content[1] and body.content[1].text
+    if body.content then
+      for _, block in ipairs(body.content) do
+        if block.type == "text" then
+          return block.text
+        end
+      end
+    end
+    return nil
   end
   local msg = body.choices and body.choices[1] and body.choices[1].message
   if msg then
@@ -25,32 +32,34 @@ local function extract_content(body, is_anthropic)
   return nil
 end
 
---- Extract a tool call from the API response.
+--- Extract all tool calls from the API response.
 ---@param decoded table
 ---@param is_anthropic boolean
----@return { name: string, arguments: table }|nil
-local function extract_tool_call(decoded, is_anthropic)
+---@return { name: string, arguments: table }[]
+local function extract_tool_calls(decoded, is_anthropic)
+  local calls = {}
   if is_anthropic then
     if decoded.content then
       for _, block in ipairs(decoded.content) do
         if block.type == "tool_use" then
-          return { name = block.name, arguments = block.input, }
+          table.insert(calls, { name = block.name, arguments = block.input, })
         end
       end
     end
   else
     local msg = decoded.choices and decoded.choices[1] and decoded.choices[1].message
     if msg and msg.tool_calls then
-      local call = msg.tool_calls[1]
-      if call and call.type == "function" and call["function"] then
-        local ok, args = pcall(vim.json.decode, call["function"].arguments)
-        if ok then
-          return { name = call["function"].name, arguments = args, }
+      for _, call in ipairs(msg.tool_calls) do
+        if call.type == "function" and call["function"] then
+          local ok, args = pcall(vim.json.decode, call["function"].arguments)
+          if ok then
+            table.insert(calls, { name = call["function"].name, arguments = args, })
+          end
         end
       end
     end
   end
-  return nil
+  return calls
 end
 
 --- Build HTTP request headers and body. Optionally includes tool definitions.
@@ -99,38 +108,29 @@ local function build_request(prompt, tools)
   return headers, body, is_anthropic
 end
 
---- Build the `askai_edit` tool definition in the provider's format.
+--- Build the `edit` tool definition in the provider's format.
 ---@param is_anthropic boolean
 ---@return table
 local function build_edit_tool(is_anthropic)
   local schema = {
     type = "object",
     properties = {
-      summary = {
+      oldString = {
         type = "string",
-        description = "What the edit WILL do (future tense), with an annotated code block showing the result",
+        description = "The EXACT text to find in the file. Must match whitespace and line breaks exactly. Must be unique in the file.",
       },
-      start = {
-        type = "integer",
-        description = "0-indexed start line of the edit in the file (pinned to selection when user selected text)",
-      },
-      ["final"] = {
-        type = "integer",
-        description = "0-indexed exclusive end line of the edit",
-      },
-      content = {
-        type = "array",
-        items = { type = "string", },
-        description = "Replacement lines for the edit",
+      newString = {
+        type = "string",
+        description = "The replacement text",
       },
     },
-    required = { "summary", "start", "final", "content", },
+    required = { "oldString", "newString", },
   }
 
   if is_anthropic then
     return {
-      name = "askai_edit",
-      description = "Edit the selected text in the file. If the user selected text, `start` is pinned to that selection, you only need to provide `content` (replacement lines) and optionally `final`.",
+      name = "edit",
+      description = "Edit code by replacing exact text. When the edit needs to happen in multiple places, call this tool multiple times in one response (once per change).",
       input_schema = schema,
     }
   end
@@ -138,14 +138,14 @@ local function build_edit_tool(is_anthropic)
   return {
     type = "function",
     ["function"] = {
-      name = "askai_edit",
-      description = "Edit the selected text in the file. If the user selected text, `start` is pinned to that selection, you only need to provide `content` (replacement lines) and optionally `final`.",
+      name = "edit",
+      description = "Edit code by replacing exact text. When the edit needs to happen in multiple places, call this tool multiple times in one response (once per change).",
       parameters = schema,
     },
   }
 end
 
---- Build the `askai_explain` tool definition in the provider's format.
+--- Build the `explain` tool definition in the provider's format.
 ---@param is_anthropic boolean
 ---@return table
 local function build_explain_tool(is_anthropic)
@@ -162,8 +162,8 @@ local function build_explain_tool(is_anthropic)
 
   if is_anthropic then
     return {
-      name = "askai_explain",
-      description = "Explain code or answer a question. Call this when the user asks a question, wants an explanation, or wants to understand code.",
+      name = "explain",
+      description = "Explain code or answer a question about the code. Use this when the user asks a question, wants an explanation, or wants to understand code.",
       input_schema = schema,
     }
   end
@@ -171,8 +171,8 @@ local function build_explain_tool(is_anthropic)
   return {
     type = "function",
     ["function"] = {
-      name = "askai_explain",
-      description = "Explain code or answer a question. Call this when the user asks a question, wants an explanation, or wants to understand code.",
+      name = "explain",
+      description = "Explain code or answer a question about the code. Use this when the user asks a question, wants an explanation, or wants to understand code.",
       parameters = schema,
     },
   }
@@ -180,11 +180,9 @@ end
 
 -- Raw API request ------------------------------------------------------------
 
---- Make an AI request. When `tools` is provided, extract the first tool call
---- and call callback with `{ name, arguments }`. Otherwise fall back to
---- parsing JSON from the response text (legacy behaviour).
+--- Make an AI request with tool definitions and return tool calls.
 ---@param prompt string
----@param callback fun(response: table|nil)
+---@param callback fun(response: { name: string, arguments: table }[]|table|nil)
 ---@param tools? table[]
 function AI.ask(prompt, callback, tools)
   local headers, body, is_anthropic = build_request(prompt, tools)
@@ -226,36 +224,21 @@ function AI.ask(prompt, callback, tools)
         end
 
         -- Tool calling path
-        if tools then
-          local tool_call = extract_tool_call(decoded, is_anthropic)
-          if tool_call then
-            callback(tool_call)
-            return
-          end
-        end
-
-        -- Legacy content parsing path
-        local content = extract_content(decoded, is_anthropic)
-        if type(content) ~= "string" or content == "" then
-          callback({
-            summary = "The AI returned an empty response "
-              .. "(`choices` field not found or empty).\n\n"
-              .. "Raw API response:\n```json\n" .. output .. "\n```",
-          })
+        local tool_calls = extract_tool_calls(decoded, is_anthropic)
+        if #tool_calls > 0 then
+          callback(tool_calls)
           return
         end
 
-        local cok, parsed = pcall(vim.json.decode, content)
-        if not cok then
-          local stripped = content:match("^```[Jj][Ss][Oo][Nn]?\n(.-)\n```$")
-          if stripped then
-            cok, parsed = pcall(vim.json.decode, stripped)
-          end
-        end
-        if cok and type(parsed) == "table" then
-          callback(parsed)
-        else
+        -- Content-only fallback
+        local content = extract_content(decoded, is_anthropic)
+        if type(content) == "string" and content ~= "" then
           callback({ summary = content, })
+        else
+          callback({
+            summary = "The AI returned an empty response.\n\n"
+              .. "Raw API response:\n```json\n" .. output .. "\n```",
+          })
         end
       end)
     end,
@@ -278,8 +261,8 @@ end
 
 -- High-level tool-calling entry point ----------------------------------------
 
---- Send user context with tool definitions and return the chosen tool call.
----@param context { question: string, selected_text?: string, sel_start_line?: integer, full_file: string, filetype: string }
+--- Send user context with tool definitions and return the chosen tool calls.
+---@param context { question: string, selected_text?: string, full_file: string, filetype: string }
 ---@param callback fun(response: table|nil)
 function AI.ask_with_tools(context, callback)
   local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true)
@@ -303,22 +286,16 @@ function AI.ask_with_tools(context, callback)
     table.insert(prompt_parts, "```")
     table.insert(prompt_parts, context.selected_text)
     table.insert(prompt_parts, "```")
-    table.insert(prompt_parts, "")
-    table.insert(prompt_parts, "The `start` field of `askai_edit` will be pinned to the")
-    table.insert(prompt_parts, "selection's first line. Only provide `content` (the")
-    table.insert(prompt_parts, "replacement lines) and optionally `final` (exclusive")
-    table.insert(prompt_parts, "end line; defaults to `start + #content`).")
-  else
-    table.insert(prompt_parts, "")
-    table.insert(prompt_parts, "No specific text is selected. Provide `start`,")
-    table.insert(prompt_parts, "`final`, and `content` for `askai_edit` to")
-    table.insert(prompt_parts, "indicate where the edit should go.")
   end
 
   table.insert(prompt_parts, "")
-  table.insert(prompt_parts, "The `summary` must describe what the edit WILL do")
-  table.insert(prompt_parts, "(future tense) and include an annotated code block")
-  table.insert(prompt_parts, "showing the resulting code.")
+  table.insert(prompt_parts, "The `edit` tool replaces EXACT text. `oldString` must match the")
+  table.insert(prompt_parts, "file content exactly, including whitespace and line breaks.")
+  table.insert(prompt_parts, "It must be unique in the file (if found multiple times, the")
+  table.insert(prompt_parts, "edit fails).")
+  table.insert(prompt_parts, "")
+  table.insert(prompt_parts, "If the edit needs to happen in multiple unrelated places,")
+  table.insert(prompt_parts, "call `edit` multiple times in one response (once per change).")
 
   local prompt = table.concat(prompt_parts, "\n")
 
@@ -328,34 +305,35 @@ function AI.ask_with_tools(context, callback)
       return
     end
 
-    if resp.name then
-      local args = resp.arguments
-      if resp.name == "askai_edit" then
-        local result = {
-          summary = args.summary,
-          edit = {
-            start = args.start,
-            final = args["final"],
-            content = args.content,
-          },
-        }
-        if context.sel_start_line
-            and context.selected_text and context.selected_text ~= "" then
-          result.edit.start = context.sel_start_line
-          if not result.edit.final then
-            result.edit.final = context.sel_start_line + #result.edit.content
-          end
+    -- Tool call list
+    if type(resp) == "table" and resp[1] then
+      local edits = {}
+      local explains = {}
+      for _, tc in ipairs(resp) do
+        if tc.name == "edit" then
+          table.insert(edits, {
+            oldString = tc.arguments.oldString,
+            newString = tc.arguments.newString,
+          })
+        elseif tc.name == "explain" then
+          table.insert(explains, tc.arguments.summary)
         end
-        callback(result)
-      elseif resp.name == "askai_explain" then
-        callback({ summary = args.summary, })
+      end
+
+      if #edits == 1 and #explains == 0 then
+        callback({ edit = edits[1], })
+      elseif #edits > 0 then
+        callback({ edits = edits, })
+      elseif #explains > 0 then
+        callback({ summary = table.concat(explains, "\n\n---\n\n"), })
       else
         callback(nil)
       end
-    else
-      -- Fallback: content response (error or raw text)
-      callback(resp)
+      return
     end
+
+    -- Fallback: error message
+    callback(resp)
   end, tools)
 end
 

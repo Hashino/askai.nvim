@@ -35,6 +35,8 @@ Config.options = {
     AskaiBorder = { fg = "#89b4fa" },
     AskaiWinbar = { link = "WinBar" },
     AskaiSpinner = { fg = "#89b4fa", bold = true },
+    AskaiDiffAdd = { link = "DiffAdd" },
+    AskaiDiffDelete = { link = "DiffDelete" },
   },
 
   -- see :h nvim_open_win() for available options
