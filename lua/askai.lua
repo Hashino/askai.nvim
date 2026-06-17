@@ -146,7 +146,6 @@ function AskAI.ask(question)
 
   local selected_text, sel_start_line = utils.get_visual_selection(buf)
   selected_text = selected_text or ""
-  sel_start_line = sel_start_line or 0
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   local filetype = vim.bo[buf].filetype

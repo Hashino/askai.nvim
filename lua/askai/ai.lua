@@ -171,23 +171,28 @@ Return only: {"type": "informational"} or {"type": "action"}
   end)
 end
 
---- Ask the AI to edit the selected text.
+--- Ask the AI to edit the selected text (or full file when no selection).
 ---@param question string
 ---@param selected_text string
----@param sel_start_line integer
+---@param sel_start_line integer|nil
 ---@param full_file string
 ---@param filetype string
 ---@param callback fun(response: table|nil)
 function AI.action(question, selected_text, sel_start_line, full_file, filetype,
     callback)
-  local prompt = [[
-{
-  "question": "]] .. question .. [["
-  "selected_text": "]] .. selected_text .. [["
-  "selection_start_line": ]] .. sel_start_line .. [[
-  "full_file": "]] .. full_file .. [["
-  "filetype": "]] .. filetype .. [["
-}
+  local prompt_parts = {}
+  table.insert(prompt_parts, "{")
+  table.insert(prompt_parts, "  \"question\": \"" .. question .. "\"")
+  if sel_start_line then
+    table.insert(prompt_parts, "  \"selected_text\": \"" .. selected_text .. "\"")
+    table.insert(prompt_parts, "  \"selection_start_line\": " .. sel_start_line)
+  end
+  table.insert(prompt_parts, "  \"full_file\": \"" .. full_file .. "\"")
+  table.insert(prompt_parts, "  \"filetype\": \"" .. filetype .. "\"")
+  table.insert(prompt_parts, "}")
+
+  if sel_start_line then
+    table.insert(prompt_parts, [[
 
 The "edit" replaces lines in the full file. `start` is fixed to
 `selection_start_line` (the selection's first line). Only provide `content`
@@ -209,7 +214,27 @@ Example for a single-line selection at line 2 asking to add emojis:
     "content": [" print('👋 hello 👋')"]
   }
 }
-]]
+]])
+  else
+    table.insert(prompt_parts, [[
+
+No specific text is selected — operate on the full file. Decide where in the
+file the edit should go. You must provide `start` (0-indexed first line),
+`final` (0-indexed exclusive end line), and `content` (the replacement lines).
+
+Return:
+{
+  "summary": "brief description + annotated code block showing the result",
+  "edit": {
+    "start": integer,
+    "final": integer,
+    "content": ["line 1", "line 2", ...]
+  }
+}
+]])
+  end
+
+  local prompt = table.concat(prompt_parts, "\n")
 
   AI.ask(prompt, function(resp)
     if resp and resp.summary then
@@ -227,8 +252,7 @@ Example for a single-line selection at line 2 asking to add emojis:
           return
         end
       end
-      -- Pin start to the selection's file line
-      if selected_text ~= "" then
+      if sel_start_line then
         resp.edit.start = sel_start_line
         if not resp.edit.final then
           resp.edit.final = sel_start_line + #resp.edit.content
@@ -239,20 +263,25 @@ Example for a single-line selection at line 2 asking to add emojis:
   end)
 end
 
---- Ask an informational question about the selected text.
+--- Ask an informational question about the selection (or full file).
 ---@param question string
 ---@param selected_text string
 ---@param full_file string
 ---@param filetype string
 ---@param callback fun(response: table|nil)
 function AI.informational(question, selected_text, full_file, filetype, callback)
-  local prompt = [[
-{
-  "question": "]] .. question .. [["
-  "selected_text": "]] .. selected_text .. [["
-  "full_file": "]] .. full_file .. [["
-  "filetype": "]] .. filetype .. [["
-}
+  local prompt_parts = {}
+  table.insert(prompt_parts, "{")
+  table.insert(prompt_parts, "  \"question\": \"" .. question .. "\"")
+  table.insert(prompt_parts, "  \"full_file\": \"" .. full_file .. "\"")
+  table.insert(prompt_parts, "  \"filetype\": \"" .. filetype .. "\"")
+  if selected_text ~= "" then
+    table.insert(prompt_parts, "  \"selected_text\": \"" .. selected_text .. "\"")
+  end
+  table.insert(prompt_parts, "}")
+
+  if selected_text ~= "" then
+    table.insert(prompt_parts, [[
 
 Return a JSON object like this:
 {
@@ -260,9 +289,19 @@ Return a JSON object like this:
     context to the `full_file`. any fenced code blocks must be annotated with
     the `filetype`.
 }
-]]
+]])
+  else
+    table.insert(prompt_parts, [[
 
-  AI.ask(prompt, callback)
+Return a JSON object like this:
+{
+  "summary": answer in markdown to the `question` about the `full_file`. any
+    fenced code blocks must be annotated with the `filetype`.
+}
+]])
+  end
+
+  AI.ask(table.concat(prompt_parts, "\n"), callback)
 end
 
 -- Validation -----------------------------------------------------------------
