@@ -6,7 +6,7 @@ local Utils = {}
 
 -- Spinner state (internal)
 local spinner_win = nil ---@type integer?
-local spinner_timer = nil ---@type uv_timer_t?
+local spinner_timer = nil
 local spinner_idx = 1 ---@type integer
 
 --- Extract visual selection text and its 0-indexed start line.

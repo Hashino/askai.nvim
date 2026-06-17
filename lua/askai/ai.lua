@@ -1,10 +1,8 @@
 local config = require("askai.config")
 
 ---@class askai.AI [Hashino/askai.nvim] AI provider requests
-
 local AI = {}
 
--- Low-level helpers ----------------------------------------------------------
 
 ---@param body table
 ---@param is_anthropic boolean
@@ -67,7 +65,7 @@ end
 ---@param tools? table[]
 ---@return table, string, boolean
 local function build_request(prompt, tools)
-  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true)
+  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true) ~= nil
 
   local headers = { ["Content-Type"] = "application/json", }
   local body
@@ -104,7 +102,6 @@ local function build_request(prompt, tools)
     body = vim.json.encode(request)
   end
 
-  ---@diagnostic disable-next-line: return-type-mismatch
   return headers, body, is_anthropic
 end
 
@@ -130,7 +127,7 @@ local function build_edit_tool(is_anthropic)
   if is_anthropic then
     return {
       name = "edit",
-      description = "Edit code by replacing exact text. When the edit needs to happen in multiple places, call this tool multiple times in one response (once per change).",
+      description = "Edit code by replacing exact text. If the oldString appears in multiple places, ALL occurrences will be replaced.",
       input_schema = schema,
     }
   end
@@ -139,7 +136,7 @@ local function build_edit_tool(is_anthropic)
     type = "function",
     ["function"] = {
       name = "edit",
-      description = "Edit code by replacing exact text. When the edit needs to happen in multiple places, call this tool multiple times in one response (once per change).",
+      description = "Edit code by replacing exact text. If the oldString appears in multiple places, ALL occurrences will be replaced.",
       parameters = schema,
     },
   }
@@ -177,8 +174,6 @@ local function build_explain_tool(is_anthropic)
     },
   }
 end
-
--- Raw API request ------------------------------------------------------------
 
 --- Make an AI request with tool definitions and return tool calls.
 ---@param prompt string
@@ -259,13 +254,11 @@ function AI.ask(prompt, callback, tools)
   })
 end
 
--- High-level tool-calling entry point ----------------------------------------
-
 --- Send user context with tool definitions and return the chosen tool calls.
 ---@param context { question: string, selected_text?: string, full_file: string, filetype: string }
 ---@param callback fun(response: table|nil)
 function AI.ask_with_tools(context, callback)
-  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true)
+  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true) ~= nil
 
   local tools = {
     build_edit_tool(is_anthropic),
@@ -290,12 +283,11 @@ function AI.ask_with_tools(context, callback)
 
   table.insert(prompt_parts, "")
   table.insert(prompt_parts, "The `edit` tool replaces EXACT text. `oldString` must match the")
-  table.insert(prompt_parts, "file content exactly, including whitespace and line breaks.")
-  table.insert(prompt_parts, "It must be unique in the file (if found multiple times, the")
-  table.insert(prompt_parts, "edit fails).")
+  table.insert(prompt_parts, "file content exactly (whitespace, line breaks). If it appears in")
+  table.insert(prompt_parts, "multiple places, ALL occurrences will be replaced.")
   table.insert(prompt_parts, "")
-  table.insert(prompt_parts, "If the edit needs to happen in multiple unrelated places,")
-  table.insert(prompt_parts, "call `edit` multiple times in one response (once per change).")
+  table.insert(prompt_parts, "To change similar text in multiple places, provide one `edit`")
+  table.insert(prompt_parts, "call with the exact text to find — it will replace ALL matches.")
 
   local prompt = table.concat(prompt_parts, "\n")
 
@@ -336,8 +328,6 @@ function AI.ask_with_tools(context, callback)
     callback(resp)
   end, tools)
 end
-
--- Validation -----------------------------------------------------------------
 
 --- Make a synchronous test request to validate provider config.
 ---@return { success: boolean, error?: string }

@@ -14,33 +14,6 @@ local AskAI  = {
   _initialized = false,
 }
 
---- Apply edit(s) to a buffer. Validates oldString uniqueness, replaces all
---- edits in memory first, then writes the buffer once (single undo point).
----@param buf integer
----@param edits { oldString: string, newString: string }[]
----@return boolean ok
----@return string? err
-local function apply_edits(buf, edits)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local content = table.concat(lines, "\n")
-
-  for _, e in ipairs(edits) do
-    local first = content:find(e.oldString, 1, true)
-    if not first then
-      return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
-    end
-    local second = content:find(e.oldString, first + 1, true)
-    if second then
-      return false, "oldString appears multiple times; provide more context"
-    end
-    content = content:sub(1, first - 1) .. e.newString .. content:sub(first + #e.oldString)
-  end
-
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false,
-    vim.split(content, "\n", { plain = true, }))
-  return true
-end
-
 --- Setup askai.nvim
 ---@param opts? askai.Config
 function AskAI.setup(opts)
@@ -77,6 +50,33 @@ function AskAI.setup(opts)
   AskAI._initialized = true
 end
 
+--- Apply edit(s) to a buffer. Validates oldString uniqueness, replaces all
+--- edits in memory first, then writes the buffer once (single undo point).
+---@param buf integer
+---@param edits { oldString: string, newString: string }[]
+---@return boolean ok
+---@return string? err
+local function apply_edits(buf, edits)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local content = table.concat(lines, "\n")
+
+  for _, e in ipairs(edits) do
+    local first = content:find(e.oldString, 1, true)
+    if not first then
+      return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
+    end
+    local second = content:find(e.oldString, first + 1, true)
+    if second then
+      return false, "oldString appears multiple times; provide more context"
+    end
+    content = content:sub(1, first - 1) .. e.newString .. content:sub(first + #e.oldString)
+  end
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+    vim.split(content, "\n", { plain = true, }))
+  return true
+end
+
 --- Show a floating window with the AI response or diff preview.
 ---@param toedit integer buffer to apply edits to
 ---@param response { summary?: string, edit?: { oldString: string, newString: string }, edits?: { oldString: string, newString: string }[] }
@@ -85,12 +85,15 @@ function AskAI.show(toedit, response)
   if not response.summary and not response.edit and not response.edits then return end
 
   -- Collect edits and build window content
+  ---@type { oldString: string, newString: string }[]
   local edits = {}
+  ---@type string
   local content_str
 
   if response.edit then
     edits = { response.edit, }
   elseif response.edits then
+    ---@type { oldString: string, newString: string }[]
     edits = response.edits
   end
 
@@ -98,8 +101,6 @@ function AskAI.show(toedit, response)
     local parts = {}
     for i, e in ipairs(edits) do
       if i > 1 then table.insert(parts, "") end
-      table.insert(parts, "─── Change " .. i .. " ─────────────────")
-      table.insert(parts, "")
       for _, l in ipairs(vim.split(e.oldString, "\n", { plain = true, })) do
         table.insert(parts, "- " .. l)
       end
@@ -112,6 +113,7 @@ function AskAI.show(toedit, response)
     content_str = response.summary
   end
 
+  ---@diagnostic disable-next-line: param-type-mismatch
   local trimmed = vim.trim(content_str)
   if trimmed == "" then
     vim.notify("[askai.nvim] AI returned an empty response", vim.log.levels.WARN)
@@ -133,16 +135,23 @@ function AskAI.show(toedit, response)
 
   -- Apply diff highlights when showing edits
   if #edits > 0 then
+    local ft = vim.bo[toedit].filetype
+    if ft and ft ~= "" then
+      vim.api.nvim_set_option_value("filetype", ft, { buf = buf, })
+      pcall(vim.treesitter.start, buf, ft)
+    end
     local ns = vim.api.nvim_create_namespace("askai_diff")
     local lines = vim.split(content_str, "\n", { plain = true, })
     for i, line in ipairs(lines) do
       if line:match("^%- ") then
         vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
           hl_group = "AskaiDiffDelete",
+          end_row = i - 1 + 1,
         })
       elseif line:match("^%+ ") then
         vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
           hl_group = "AskaiDiffAdd",
+          end_row = i - 1 + 1,
         })
       end
     end
@@ -174,6 +183,11 @@ function AskAI.show(toedit, response)
   })
 
   if #edits > 0 then
+    local ft = vim.bo[toedit].filetype
+    if ft and ft ~= "" then
+      vim.api.nvim_set_option_value("filetype", ft, { buf = buf, })
+      pcall(vim.treesitter.start, buf, ft)
+    end
     vim.keymap.set("n", config.options.keys.confirm, function()
       pcall(vim.api.nvim_win_close, AskAI.win_id, true)
       AskAI.win_id = nil
@@ -181,7 +195,7 @@ function AskAI.show(toedit, response)
           and vim.api.nvim_buf_is_loaded(toedit) then
         local ok, err = apply_edits(toedit, edits)
         if not ok then
-          vim.notify(err, vim.log.levels.ERROR)
+          vim.notify("[askai.nvim] failed to apply edits: " .. err, vim.log.levels.ERROR)
         end
       end
     end, { buffer = buf, })

@@ -1,7 +1,7 @@
 local Config = {}
 
-local HEIGHT = 25
-local WIDTH = 75
+local HEIGHT = 50
+local WIDTH = 120
 
 ---@class askai.Config
 ---@field provider askai.Config.Provider provider options for the AI
@@ -15,14 +15,14 @@ Config.options = {
   ---@field api_key string API key for the provider
   ---@field api_url string API URL for the provider
   ---@field model string model to use for the provider
-  provider = { api_key = "", api_url = "", model = "" },
+  provider = { api_key = "", api_url = "", model = "", },
 
   ---@class askai.Config.Keys
   ---@field confirm string keymap to accept the suggested edit
   ---@field dismiss string keymap to dismiss the floating window
-  keys = { confirm = "<S-CR>", dismiss = "<Esc>" },
+  keys = { confirm = "<S-CR>", dismiss = "<Esc>", },
 
-  spinner_characters = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" },
+  spinner_characters = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷", },
   spinner_interval_ms = 80,
 
   ---@class askai.Config.Highlights
@@ -31,12 +31,12 @@ Config.options = {
   ---@field AskaiWinbar? table|string highlight for the winbar text
   ---@field AskaiSpinner? table|string highlight for the loading spinner
   highlights = {
-    AskaiNormal = { link = "NormalFloat" },
-    AskaiBorder = { fg = "#89b4fa" },
-    AskaiWinbar = { link = "WinBar" },
-    AskaiSpinner = { fg = "#89b4fa", bold = true },
-    AskaiDiffAdd = { link = "DiffAdd" },
-    AskaiDiffDelete = { link = "DiffDelete" },
+    AskaiNormal = { link = "NormalFloat", },
+    AskaiBorder = { fg = "#89b4fa", },
+    AskaiWinbar = { link = "WinBar", },
+    AskaiSpinner = { fg = "#89b4fa", bold = true, },
+    AskaiDiffAdd = { link = "DiffAdd", },
+    AskaiDiffDelete = { link = "DiffDelete", },
   },
 
   -- see :h nvim_open_win() for available options
@@ -53,4 +53,3 @@ Config.options = {
 }
 
 return Config
-
