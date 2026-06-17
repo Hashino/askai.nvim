@@ -17,9 +17,39 @@ local function extract_content(body, is_anthropic)
   end
 end
 
+--- Extract a tool call from the API response.
+---@param decoded table
+---@param is_anthropic boolean
+---@return { name: string, arguments: table }|nil
+local function extract_tool_call(decoded, is_anthropic)
+  if is_anthropic then
+    if decoded.content then
+      for _, block in ipairs(decoded.content) do
+        if block.type == "tool_use" then
+          return { name = block.name, arguments = block.input, }
+        end
+      end
+    end
+  else
+    local msg = decoded.choices and decoded.choices[1] and decoded.choices[1].message
+    if msg and msg.tool_calls then
+      local call = msg.tool_calls[1]
+      if call and call.type == "function" and call.function then
+        local ok, args = pcall(vim.json.decode, call.function.arguments)
+        if ok then
+          return { name = call.function.name, arguments = args, }
+        end
+      end
+    end
+  end
+  return nil
+end
+
+--- Build HTTP request headers and body. Optionally includes tool definitions.
 ---@param prompt string
+---@param tools? table[]
 ---@return table, string, boolean
-local function build_request(prompt)
+local function build_request(prompt, tools)
   local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true)
 
   local headers = { ["Content-Type"] = "application/json", }
@@ -28,30 +58,128 @@ local function build_request(prompt)
   if is_anthropic then
     headers["x-api-key"] = config.options.provider.api_key
     headers["anthropic-version"] = "2023-06-01"
-    body = vim.json.encode({
+
+    local request = {
       model = config.options.provider.model,
       max_tokens = 4096,
       messages = { { role = "user", content = prompt, }, },
-    })
+    }
+
+    if tools then
+      request.tools = tools
+      request.tool_choice = { type = "auto", }
+    end
+
+    body = vim.json.encode(request)
   else
     headers["Authorization"] = "Bearer " .. config.options.provider.api_key
-    body = vim.json.encode({
+
+    local request = {
       model = config.options.provider.model,
       messages = { { role = "user", content = prompt, }, },
-    })
+    }
+
+    if tools then
+      request.tools = tools
+      request.tool_choice = "auto"
+    end
+
+    body = vim.json.encode(request)
   end
 
   ---@diagnostic disable-next-line: return-type-mismatch
   return headers, body, is_anthropic
 end
 
+--- Build the `askai_edit` tool definition in the provider's format.
+---@param is_anthropic boolean
+---@return table
+local function build_edit_tool(is_anthropic)
+  local schema = {
+    type = "object",
+    properties = {
+      summary = {
+        type = "string",
+        description = "Brief markdown summary of the edit with a code block showing the result",
+      },
+      start = {
+        type = "integer",
+        description = "0-indexed start line of the edit in the file",
+      },
+      ["final"] = {
+        type = "integer",
+        description = "0-indexed exclusive end line of the edit",
+      },
+      content = {
+        type = "array",
+        items = { type = "string", },
+        description = "Replacement lines for the edit",
+      },
+    },
+    required = { "summary", "start", "final", "content", },
+  }
+
+  if is_anthropic then
+    return {
+      name = "askai_edit",
+      description = "Edit code lines in the file. Call this when the user asks to change, fix, refactor, add, or modify code.",
+      input_schema = schema,
+    }
+  end
+
+  return {
+    type = "function",
+    function = {
+      name = "askai_edit",
+      description = "Edit code lines in the file. Call this when the user asks to change, fix, refactor, add, or modify code.",
+      parameters = schema,
+    },
+  }
+end
+
+--- Build the `askai_explain` tool definition in the provider's format.
+---@param is_anthropic boolean
+---@return table
+local function build_explain_tool(is_anthropic)
+  local schema = {
+    type = "object",
+    properties = {
+      summary = {
+        type = "string",
+        description = "Markdown explanation answering the user's question",
+      },
+    },
+    required = { "summary", },
+  }
+
+  if is_anthropic then
+    return {
+      name = "askai_explain",
+      description = "Explain code or answer a question. Call this when the user asks a question, wants an explanation, or wants to understand code.",
+      input_schema = schema,
+    }
+  end
+
+  return {
+    type = "function",
+    function = {
+      name = "askai_explain",
+      description = "Explain code or answer a question. Call this when the user asks a question, wants an explanation, or wants to understand code.",
+      parameters = schema,
+    },
+  }
+end
+
 -- Raw API request ------------------------------------------------------------
 
---- Make an AI request and parse the structured JSON response.
+--- Make an AI request. When `tools` is provided, extract the first tool call
+--- and call callback with `{ name, arguments }`. Otherwise fall back to
+--- parsing JSON from the response text (legacy behaviour).
 ---@param prompt string
 ---@param callback fun(response: table|nil)
-function AI.ask(prompt, callback)
-  local headers, body, is_anthropic = build_request(prompt)
+---@param tools? table[]
+function AI.ask(prompt, callback, tools)
+  local headers, body, is_anthropic = build_request(prompt, tools)
 
   local cmd = { "curl", "-sS", "-X", "POST", config.options.provider.api_url, }
   for k, v in pairs(headers) do
@@ -89,6 +217,16 @@ function AI.ask(prompt, callback)
           return
         end
 
+        -- Tool calling path
+        if tools then
+          local tool_call = extract_tool_call(decoded, is_anthropic)
+          if tool_call then
+            callback(tool_call)
+            return
+          end
+        end
+
+        -- Legacy content parsing path
         local content = extract_content(decoded, is_anthropic)
         if type(content) ~= "string" or content == "" then
           callback({
@@ -99,18 +237,14 @@ function AI.ask(prompt, callback)
           return
         end
 
-        -- Try to parse the content as structured JSON
         local cok, parsed = pcall(vim.json.decode, content)
         if not cok then
-          -- Strip markdown fenced code block if the AI wrapped JSON in ```json
           local stripped = content:match("^```[Jj][Ss][Oo][Nn]?\n(.-)\n```$")
           if stripped then
             cok, parsed = pcall(vim.json.decode, stripped)
           end
         end
-        if cok and type(parsed) == "table"
-            and (type(parsed.summary) == "string" and parsed.summary ~= ""
-              or parsed.type == "informational" or parsed.type == "action") then
+        if cok and type(parsed) == "table" then
           callback(parsed)
         else
           callback({ summary = content, })
@@ -134,174 +268,72 @@ function AI.ask(prompt, callback)
   })
 end
 
--- High-level prompt builders -------------------------------------------------
+-- High-level tool-calling entry point ----------------------------------------
 
---- Classify the user's question as "action" or "informational".
----@param question string
----@param callback fun(result: { type: "action"|"informational" }|nil)
-function AI.classify(question, callback)
-  local prompt = [[
-Question: ]] .. question .. [[
-
-Classify as "action" if the user wants any code edit (add, change, fix,
-refactor, modify, update, remove, rewrite, convert, optimize, simplify, etc.).
-Classify as "informational" only if the user just wants an explanation or
-question answered without changing the code.
-
-Examples:
-- "explain this"              -> informational
-- "what does this do"         -> informational
-- "add logging"               -> action
-- "fix the bug"               -> action
-- "add emojis to this line"   -> action
-- "refactor this function"    -> action
-
-Return only: {"type": "informational"} or {"type": "action"}
-]]
-
-  AI.ask(prompt, function(resp)
-    if not resp or not resp.type
-        or not (resp.type == "action" or resp.type == "informational") then
-      vim.notify("[askai.nvim] could not determine request type",
-        vim.log.levels.WARN)
-      callback(nil)
-      return
-    end
-    callback(resp)
-  end)
-end
-
---- Ask the AI to edit the selected text (or full file when no selection).
----@param question string
----@param selected_text string
----@param sel_start_line integer|nil
----@param full_file string
----@param filetype string
+--- Send user context with tool definitions and return the chosen tool call.
+---@param context { question: string, selected_text?: string, sel_start_line?: integer, full_file: string, filetype: string }
 ---@param callback fun(response: table|nil)
-function AI.action(question, selected_text, sel_start_line, full_file, filetype,
-    callback)
+function AI.ask_with_tools(context, callback)
+  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true)
+
+  local tools = {
+    build_edit_tool(is_anthropic),
+    build_explain_tool(is_anthropic),
+  }
+
   local prompt_parts = {}
-  table.insert(prompt_parts, "{")
-  table.insert(prompt_parts, "  \"question\": \"" .. question .. "\"")
-  if sel_start_line then
-    table.insert(prompt_parts, "  \"selected_text\": \"" .. selected_text .. "\"")
-    table.insert(prompt_parts, "  \"selection_start_line\": " .. sel_start_line)
-  end
-  table.insert(prompt_parts, "  \"full_file\": \"" .. full_file .. "\"")
-  table.insert(prompt_parts, "  \"filetype\": \"" .. filetype .. "\"")
-  table.insert(prompt_parts, "}")
+  table.insert(prompt_parts, "Question: " .. context.question)
+  table.insert(prompt_parts, "")
+  table.insert(prompt_parts, "Full file:")
+  table.insert(prompt_parts, "```" .. (context.filetype or "") .. "")
+  table.insert(prompt_parts, context.full_file)
+  table.insert(prompt_parts, "```")
 
-  if sel_start_line then
-    table.insert(prompt_parts, [[
-
-The "edit" replaces lines in the full file. `start` is fixed to
-`selection_start_line` (the selection's first line). Only provide `content`
-(the replacement lines) and optionally `final` (0-indexed exclusive end line;
-defaults to `start + #content`).
-
-Return:
-{
-  "summary": "brief description + annotated code block showing the result",
-  "edit": {
-    "content": ["line 1", "line 2", ...]
-  }
-}
-
-Example for a single-line selection at line 2 asking to add emojis:
-{
-  "summary": "Will add the 👋 emoji.\n```lua\n  print('👋 hello 👋')```",
-  "edit": {
-    "content": [" print('👋 hello 👋')"]
-  }
-}
-]])
-  else
-    table.insert(prompt_parts, [[
-
-No specific text is selected — operate on the full file. Decide where in the
-file the edit should go. You must provide `start` (0-indexed first line),
-`final` (0-indexed exclusive end line), and `content` (the replacement lines).
-
-Return:
-{
-  "summary": "brief description + annotated code block showing the result",
-  "edit": {
-    "start": integer,
-    "final": integer,
-    "content": ["line 1", "line 2", ...]
-  }
-}
-]])
+  if context.selected_text and context.selected_text ~= "" then
+    table.insert(prompt_parts, "")
+    table.insert(prompt_parts, "Selected text:")
+    table.insert(prompt_parts, "```")
+    table.insert(prompt_parts, context.selected_text)
+    table.insert(prompt_parts, "```")
   end
 
   local prompt = table.concat(prompt_parts, "\n")
 
   AI.ask(prompt, function(resp)
-    if resp and resp.summary then
-      if not resp.edit or type(resp.edit) ~= "table" or not resp.edit.content then
-        local code_block = resp.summary:match("```[^\n]*\n(.-)\n```")
-        if code_block then
-          resp.edit = {
-            content = vim.split(code_block, "\n", { plain = true, }),
-          }
-        else
-          vim.notify(
-            "[askai.nvim] AI response missing edit and no code block found",
-            vim.log.levels.ERROR)
-          callback(nil)
-          return
-        end
-      end
-      if sel_start_line then
-        resp.edit.start = sel_start_line
-        if not resp.edit.final then
-          resp.edit.final = sel_start_line + #resp.edit.content
-        end
-      end
+    if not resp then
+      callback(nil)
+      return
     end
-    callback(resp)
-  end)
-end
 
---- Ask an informational question about the selection (or full file).
----@param question string
----@param selected_text string
----@param full_file string
----@param filetype string
----@param callback fun(response: table|nil)
-function AI.informational(question, selected_text, full_file, filetype, callback)
-  local prompt_parts = {}
-  table.insert(prompt_parts, "{")
-  table.insert(prompt_parts, "  \"question\": \"" .. question .. "\"")
-  table.insert(prompt_parts, "  \"full_file\": \"" .. full_file .. "\"")
-  table.insert(prompt_parts, "  \"filetype\": \"" .. filetype .. "\"")
-  if selected_text ~= "" then
-    table.insert(prompt_parts, "  \"selected_text\": \"" .. selected_text .. "\"")
-  end
-  table.insert(prompt_parts, "}")
-
-  if selected_text ~= "" then
-    table.insert(prompt_parts, [[
-
-Return a JSON object like this:
-{
-  "summary": answer in markdown to the `question` about the `selected_text` in
-    context to the `full_file`. any fenced code blocks must be annotated with
-    the `filetype`.
-}
-]])
-  else
-    table.insert(prompt_parts, [[
-
-Return a JSON object like this:
-{
-  "summary": answer in markdown to the `question` about the `full_file`. any
-    fenced code blocks must be annotated with the `filetype`.
-}
-]])
-  end
-
-  AI.ask(table.concat(prompt_parts, "\n"), callback)
+    if resp.name then
+      local args = resp.arguments
+      if resp.name == "askai_edit" then
+        local result = {
+          summary = args.summary,
+          edit = {
+            start = args.start,
+            final = args["final"],
+            content = args.content,
+          },
+        }
+        if context.sel_start_line
+            and context.selected_text and context.selected_text ~= "" then
+          result.edit.start = context.sel_start_line
+          if not result.edit.final then
+            result.edit.final = context.sel_start_line + #result.edit.content
+          end
+        end
+        callback(result)
+      elseif resp.name == "askai_explain" then
+        callback({ summary = args.summary, })
+      else
+        callback(nil)
+      end
+    else
+      -- Fallback: content response (error or raw text)
+      callback(resp)
+    end
+  end, tools)
 end
 
 -- Validation -----------------------------------------------------------------

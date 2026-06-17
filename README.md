@@ -70,6 +70,16 @@ The AI receives:
 
 A braille spinner (`⣾⣽⣻⢿⡿⣟⣯⣷`) animates in the bottom-right corner while waiting for the response. The answer appears in a floating window with `syntax=markdown`. If the AI suggests a code edit, press `<S-CR>` (configurable) to apply it, or `<Esc>` to dismiss.
 
+## provider requirements
+
+Your AI provider must support **tool calling** (also called function calling).
+Compatible providers include:
+
+- OpenAI / OpenAI-compatible APIs (OpenAI, Together, Groq, etc.)
+- Anthropic (Claude)
+
+Providers without tool calling support will **not** work with this plugin.
+
 ## config
 
 [see the source code for default options](https://github.com/Hashino/askai.nvim/blob/main/lua/askai/config.lua)

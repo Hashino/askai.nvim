@@ -152,32 +152,18 @@ function AskAI.ask(question)
 
   utils.show_spinner()
 
-  ai.classify(question, function(classify_resp)
-    if not classify_resp then
-      utils.hide_spinner()
-      return
-    end
-
-    if classify_resp.type == "action" then
-      ai.action(question, selected_text, sel_start_line, full_file, filetype,
-        function(resp)
-          utils.hide_spinner()
-          if resp and resp.summary then
-            AskAI.show(buf, resp)
-          else
-            vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
-          end
-        end)
+  ai.ask_with_tools({
+    question = question,
+    selected_text = selected_text,
+    sel_start_line = sel_start_line,
+    full_file = full_file,
+    filetype = filetype,
+  }, function(resp)
+    utils.hide_spinner()
+    if resp and resp.summary then
+      AskAI.show(buf, resp)
     else
-      ai.informational(question, selected_text, full_file, filetype,
-        function(resp)
-          utils.hide_spinner()
-          if resp and resp.summary then
-            AskAI.show(buf, resp)
-          else
-            vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
-          end
-        end)
+      vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
     end
   end)
 end
