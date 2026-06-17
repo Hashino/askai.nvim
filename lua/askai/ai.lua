@@ -112,7 +112,7 @@ local function build_edit_tool(is_anthropic)
       },
       start = {
         type = "integer",
-        description = "0-indexed start line of the edit in the file",
+        description = "0-indexed start line of the edit in the file (pinned to selection when user selected text)",
       },
       ["final"] = {
         type = "integer",
@@ -130,7 +130,7 @@ local function build_edit_tool(is_anthropic)
   if is_anthropic then
     return {
       name = "askai_edit",
-      description = "Edit code lines in the file. Call this when the user asks to change, fix, refactor, add, or modify code.",
+      description = "Edit the selected text in the file. If the user selected text, `start` is pinned to that selection, you only need to provide `content` (replacement lines) and optionally `final`.",
       input_schema = schema,
     }
   end
@@ -139,7 +139,7 @@ local function build_edit_tool(is_anthropic)
     type = "function",
     ["function"] = {
       name = "askai_edit",
-      description = "Edit code lines in the file. Call this when the user asks to change, fix, refactor, add, or modify code.",
+      description = "Edit the selected text in the file. If the user selected text, `start` is pinned to that selection, you only need to provide `content` (replacement lines) and optionally `final`.",
       parameters = schema,
     },
   }
@@ -303,6 +303,16 @@ function AI.ask_with_tools(context, callback)
     table.insert(prompt_parts, "```")
     table.insert(prompt_parts, context.selected_text)
     table.insert(prompt_parts, "```")
+    table.insert(prompt_parts, "")
+    table.insert(prompt_parts, "The `start` field of `askai_edit` will be pinned to the")
+    table.insert(prompt_parts, "selection's first line. Only provide `content` (the")
+    table.insert(prompt_parts, "replacement lines) and optionally `final` (exclusive")
+    table.insert(prompt_parts, "end line; defaults to `start + #content`).")
+  else
+    table.insert(prompt_parts, "")
+    table.insert(prompt_parts, "No specific text is selected. Provide `start`,")
+    table.insert(prompt_parts, "`final`, and `content` for `askai_edit` to")
+    table.insert(prompt_parts, "indicate where the edit should go.")
   end
 
   local prompt = table.concat(prompt_parts, "\n")
