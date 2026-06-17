@@ -33,6 +33,11 @@ function Utils.get_visual_selection(buf)
   local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
   local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
 
+  -- Verify we're still in visual mode (marks persist after exiting)
+  if not vim.fn.visualmode() or vim.fn.visualmode() == "" then
+    return nil, nil
+  end
+
   if start_pos[1] == 0 and end_pos[1] == 0 then
     local v_start = vim.fn.getpos("v")
     local v_end = vim.fn.getpos(".")
