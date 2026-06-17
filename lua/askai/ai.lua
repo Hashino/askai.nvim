@@ -108,7 +108,7 @@ local function build_edit_tool(is_anthropic)
     properties = {
       summary = {
         type = "string",
-        description = "Brief markdown summary of the edit with a code block showing the result",
+        description = "What the edit WILL do (future tense), with an annotated code block showing the result",
       },
       start = {
         type = "integer",
@@ -314,6 +314,11 @@ function AI.ask_with_tools(context, callback)
     table.insert(prompt_parts, "`final`, and `content` for `askai_edit` to")
     table.insert(prompt_parts, "indicate where the edit should go.")
   end
+
+  table.insert(prompt_parts, "")
+  table.insert(prompt_parts, "The `summary` must describe what the edit WILL do")
+  table.insert(prompt_parts, "(future tense) and include an annotated code block")
+  table.insert(prompt_parts, "showing the resulting code.")
 
   local prompt = table.concat(prompt_parts, "\n")
 
