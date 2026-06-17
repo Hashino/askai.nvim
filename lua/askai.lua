@@ -19,24 +19,6 @@ local AskAI = {
 function AskAI.setup(opts)
   config.options = vim.tbl_deep_extend("force", config.options, opts or {})
 
-  -- Ensure win_config always has required fields (user can override but not remove)
-  local default_win_config = {
-    relative = "editor",
-    width = 75,
-    height = 25,
-    col = vim.o.columns - 75,
-    row = vim.o.lines - 3 - vim.o.cmdheight - 25,
-    style = "minimal",
-    border = "rounded",
-    noautocmd = true,
-  }
-  config.options.win_config = vim.tbl_deep_extend("force", default_win_config, config.options.win_config or {})
-
-  -- Ensure fenced‑language highlighting works for markdown code blocks
-  if vim.g.markdown_fenced_languages == nil then
-    vim.g.markdown_fenced_languages = { 'lua', 'python', 'bash=sh', 'js=javascript', 'json', 'yaml', 'html', 'css' }
-  end
-
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
@@ -49,7 +31,7 @@ function AskAI.setup(opts)
   -- Validate provider with a test request
   local validation = ai.validate_provider()
   if not validation.success then
-    vim.notify("[askai.nvim] Provider validation failed: " .. validation.error, vim.log.levels.ERROR)
+    vim.notify("[askai.nvim] provider validation failed: " .. validation.error, vim.log.levels.ERROR)
     AskAI._initialized = false
     return
   end
@@ -64,7 +46,7 @@ function AskAI.setup(opts)
     end
   end
 
-  vim.notify("[askai.nvim] Provider validated successfully", vim.log.levels.INFO)
+  vim.notify("[askai.nvim] provider validated successfully", vim.log.levels.INFO)
   AskAI._initialized = true
 end
 
@@ -74,28 +56,47 @@ end
 ---@return string|nil
 local function get_visual_selection(buf)
   local mode = vim.fn.visualmode()
-  if not mode then return nil end
+
+  if not mode or mode == "" then
+    local cur = vim.api.nvim_get_mode().mode
+    if cur == "v" or cur == "V" then
+      mode = cur
+    elseif cur == "\22" then
+      mode = "\22"
+    else
+      return nil
+    end
+  end
+
+  if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then return nil end
 
   local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
   local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
 
-  if start_pos[1] == 0 and end_pos[1] == 0 then return nil end
+  if start_pos[1] == 0 and end_pos[1] == 0 then
+    local v_start = vim.fn.getpos("v")
+    local v_end = vim.fn.getpos(".")
+    start_pos = { v_start[2], v_start[3] - 1 }
+    end_pos = { v_end[2], v_end[3] - 1 }
+  end
 
-  if mode == "V" then start_pos[2] = 0 end
+  if mode == "V" then
+    start_pos[2] = 0
+  end
 
-  -- normalize so start <= end
   if start_pos[1] > end_pos[1] or (start_pos[1] == end_pos[1] and start_pos[2] > end_pos[2]) then
     start_pos, end_pos = end_pos, start_pos
   end
 
-  local lines = vim.api.nvim_buf_get_lines(buf, start_pos[1] - 1, end_pos[1], false)
+  local start_line = start_pos[1] - 1
+
+  local lines = vim.api.nvim_buf_get_lines(buf, start_line, end_pos[1], false)
   if #lines == 0 then return nil end
 
-  -- characterwise / blockwise: slice first and last line
   if mode == "v" or mode == "\22" then
     lines[1] = string.sub(lines[1], start_pos[2] + 1)
     if #lines == 1 then
-      lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] - start_pos[2])
+      lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] - start_pos[2] + 1)
     else
       lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] + 1)
     end
@@ -111,8 +112,6 @@ function AskAI.show(toedit, response)
   if not response or not response.summary then return end
 
   -- Trim whitespace; if truly empty, don't show an empty window
-  -- Convert escaped \n sequences to actual newlines
-  response.summary = response.summary:gsub('\\\\n', '\n')
   local trimmed = vim.trim(response.summary)
   if trimmed == "" then
     vim.notify("[askai.nvim] AI returned an empty response", vim.log.levels.WARN)
@@ -135,11 +134,15 @@ function AskAI.show(toedit, response)
 
   -- Markdown syntax highlighting
   vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf })
-  vim.api.nvim_set_option_value("syntax",   "markdown", { buf = buf })
-  -- Start Tree‑sitter highlighting for markdown (if available)
-  if vim.treesitter and vim.treesitter.start then
-    pcall(vim.treesitter.start, buf, 'markdown')
-  end
+  vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf })
+  -- Trigger FileType autocommands (e.g., to load markdown fenced‑language syntax or Tree‑sitter)
+  vim.api.nvim_buf_call(buf, function()
+    vim.cmd('doautocmd FileType markdown')
+    -- Start Tree‑sitter highlighting for markdown if available
+    if vim.treesitter and vim.treesitter.start then
+      pcall(vim.treesitter.start, buf, 'markdown')
+    end
+  end)
 
   -- Compute dynamic dimensions from content
   local win_config = config.options.win_config
@@ -247,60 +250,117 @@ function AskAI.ask(question)
   if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then return end
 
   -- Get visual selection if any
-  local selected_text = get_visual_selection(buf)
+  local selected_text, sel_start_line = get_visual_selection(buf)
+  selected_text = selected_text or ""
+  sel_start_line = sel_start_line or 0
 
   -- Get full document text (truncated to avoid token limits)
-  local full_doc = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local full_text = table.concat(full_doc, "\n")
-  local max_ctx = config.options.max_context_size
-  if #full_text > max_ctx then
-    full_text = string.sub(full_text, 1, max_ctx)
-        .. "\n\n-- [[ ... truncated to " .. max_ctx .. " characters ... ]]"
-  end
+  local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   local filetype = vim.bo[buf].filetype
 
-  -- Build the prompt
-  local prompt_parts = {}
-  table.insert(prompt_parts, "Answer the user's question about the selected text in the context of the full document.\n")
-  table.insert(prompt_parts, "\n--- Document (filetype: " .. filetype .. ") ---\n```" .. filetype .. "\n")
-  table.insert(prompt_parts, full_text)
-  table.insert(prompt_parts, "\n```\n")
+  -- Step 1: classify request — is the user asking to change code or to explain it?
+  local classify_prompt = [[
+Question: ]] .. question .. [[
 
-  if selected_text then
-    table.insert(prompt_parts, "\n--- Selected text (focus of the question) ---\n```" .. filetype .. "\n")
-    table.insert(prompt_parts, selected_text)
-    table.insert(prompt_parts, "\n```\n")
-  end
+Classify as "action" if the user wants any code edit (add, change, fix, refactor,
+modify, update, remove, rewrite, convert, optimize, simplify, etc.).
+Classify as "informational" only if the user just wants an explanation or question
+answered without changing the code.
 
-  table.insert(prompt_parts, "\n--- Question ---\n")
-  table.insert(prompt_parts, question)
-  table.insert(prompt_parts, "\n")
+Examples:
+- "explain this"              → informational
+- "what does this do"         → informational
+- "add logging"               → action
+- "fix the bug"               → action
+- "add emojis to this line"   → action
+- "refactor this function"    → action
 
-  table.insert(prompt_parts, [[
-Respond in JSON format with no extra commentary:
+Return only: {"type": "informational"} or {"type": "action"}
+]]
+
+  show_spinner()
+
+  ai.ask(classify_prompt, function(classify_resp)
+    if not classify_resp or not classify_resp.type or not (classify_resp.type == "action" or classify_resp.type == "informational") then
+      vim.notify("[askai.nvim] could not determine request type", vim.log.levels.WARN)
+      return
+    end
+
+    local is_action = classify_resp.type == "action"
+
+    local main_prompt = ""
+
+    if is_action then
+      main_prompt = [[
 {
-  "summary": "If the user asks to DO something (refactor, fix, change, add, etc.), describe WHAT WILL BE CHANGED in future tense, and include a fenced code block with the language annotated **inside the summary** showing the resulting code AFTER the edit. If the question is informational, explain the answer. Use markdown with ```<language> fences for code, where <language> matches the filetype of the edited code. You **MUST** include a fenced code block (annotated with the filetype) that shows the code **after** the edit. Insert newline characters (\\n) in the summary to separate sections (e.g., description and the fenced code block) and improve its readability."
+  "question": "]] .. question .. [["
+  "selected_text": "]] .. selected_text .. [["
+  "selection_start_line": ]] .. sel_start_line .. [[
+  "full_file": "]] .. full_file .. [["
+  "filetype": "]] .. filetype .. [["
+}
+
+The "edit" replaces lines in the full file. `start` is fixed to
+`selection_start_line` (the selection's first line). Only provide
+`content` (the replacement lines) and optionally `final` (0-indexed
+exclusive end line; defaults to `start + #content`).
+
+Return:
+{
+  "summary": "brief description + annotated code block showing the result",
   "edit": {
-    "start": <0-indexed start line of the edit>,
-    "final": <0-indexed end line (exclusive) of the edit>,
-    "content": ["replacement line 1", "replacement line 2", "..."]
+    "content": ["line 1", "line 2", ...]
   }
 }
 
-If the user asks to do something (refactor, fix, change, add, etc.), include the "edit" field with the exact change.
-If the question is just informational, omit the "edit" field and return only { "summary": "..." }.
-Focus your answer on the selected text (or the whole document if no selection).]])
-
-  local prompt = table.concat(prompt_parts, "\n")
-
-  show_spinner()
-  ai.ask(prompt, function(response)
-    hide_spinner()
-    if response and response.summary then
-      AskAI.show(buf, response)
+Example for a single-line selection at line 2 asking to add emojis:
+{
+  "summary": "Will add the 👋 emoji.\n```lua\n  print('👋 hello 👋')```",
+  "edit": {
+    "content": [" print('👋 hello 👋')"]
+  }
+}
+]]
     else
-      vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+      main_prompt = [[
+{
+  "question": "]] .. question .. [["
+  "selected_text": "]] .. selected_text .. [["
+  "full_file": "]] .. full_file .. [["
+  "filetype": "]] .. filetype .. [["
+}
+Return a JSON object like this:
+{
+  "summary": answer in markdown to the `question` about the `selected_text` in context to the `full_file`. any fenced code blocks must be annotated with the `filetype`
+}
+]]
     end
+
+    ai.ask(main_prompt, function(final_resp)
+      hide_spinner()
+      if final_resp and final_resp.summary then
+        -- If the AI omitted the edit field, try to extract a code block from the summary
+        if is_action and (not final_resp.edit or type(final_resp.edit) ~= "table" or not final_resp.edit.content) then
+          local code_block = final_resp.summary:match("```[^\n]*\n(.-)\n```")
+          if code_block then
+            final_resp.edit = { content = vim.split(code_block, "\n", { plain = true }) }
+          else
+            vim.notify("[askai.nvim] AI response missing edit field and no code block found in summary",
+              vim.log.levels.ERROR)
+            return
+          end
+        end
+        if final_resp.edit and selected_text ~= "" then
+          final_resp.edit.start = sel_start_line
+          if not final_resp.edit.final then
+            final_resp.edit.final = sel_start_line + #final_resp.edit.content
+          end
+        end
+        AskAI.show(buf, final_resp)
+      else
+        vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+      end
+    end)
   end)
 end
 

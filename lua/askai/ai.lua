@@ -16,7 +16,7 @@ end
 ---@param prompt string the prompt to send
 ---@return table headers, string body, boolean is_anthropic
 local function build_request(prompt)
-  local is_anthropic = config.options.provider.api_url:find("anthropic%.com", 1, true)
+  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true)
 
   local headers = { ["Content-Type"] = "application/json" }
   local body
@@ -97,10 +97,16 @@ function AI.ask(prompt, callback)
 
         -- Try to parse the content as structured JSON
         local cok, parsed = pcall(vim.json.decode, content)
-        if cok and type(parsed) == "table" and type(parsed.summary) == "string" and parsed.summary ~= "" then
+        if not cok then
+          -- Strip markdown fenced code block if the AI wrapped JSON in ```json
+          local stripped = content:match("^```[Jj][Ss][Oo][Nn]?\n(.-)\n```$")
+          if stripped then
+            cok, parsed = pcall(vim.json.decode, stripped)
+          end
+        end
+        if cok and type(parsed) == "table" and (type(parsed.summary) == "string" and parsed.summary ~= "" or parsed.type == "informational" or parsed.type == "action") then
           callback(parsed)
         else
-          -- Use the raw content as-is (non-JSON response, or JSON without valid summary)
           callback({ summary = content })
         end
       end)

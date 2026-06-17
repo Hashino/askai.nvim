@@ -9,7 +9,6 @@ local WIDTH = 75
 ---@field win_config? table window config for the suggestion window (see :h nvim_open_win())
 ---@field spinner_characters? string[] characters for the loading spinner animation
 ---@field spinner_interval_ms? number interval in ms between spinner frames
----@field max_context_size? integer maximum characters of document context to send
 ---@field highlights? table highlight group definitions (table of args or link string)
 Config.options = {
   ---@class askai.Config.Provider
@@ -25,7 +24,6 @@ Config.options = {
 
   spinner_characters = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" },
   spinner_interval_ms = 80,
-  max_context_size = 8000,
 
   ---@class askai.Config.Highlights
   ---@field AskaiNormal? table|string highlight for the floating window background/text
@@ -53,3 +51,4 @@ Config.options = {
 }
 
 return Config
+
