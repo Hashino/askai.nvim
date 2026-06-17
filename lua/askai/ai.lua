@@ -175,6 +175,51 @@ local function build_explain_tool(is_anthropic)
   }
 end
 
+--- Classify user intent as "action" or "informational".
+---@param question string
+---@param callback fun(intent: string)
+function AI.classify(question, callback)
+  local classify_prompt = [[Classify the user request as "action" or "informational".
+Reply with exactly one word: "action" or "informational".
+
+User: ]] .. question
+
+  local headers, body, is_anthropic = build_request(classify_prompt)
+
+  local cmd = { "curl", "-sS", "-X", "POST", config.options.provider.api_url, }
+  for k, v in pairs(headers) do
+    table.insert(cmd, "-H")
+    table.insert(cmd, k .. ": " .. v)
+  end
+  table.insert(cmd, "-d")
+  table.insert(cmd, body)
+
+  local done = false
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    on_stdout = function(_, data, _)
+      if done then return end
+      if not data then callback("action"); return end
+      vim.schedule(function()
+        if done then return end
+        done = true
+        local output = table.concat(data, "")
+        local ok, decoded = pcall(vim.json.decode, output)
+        if not ok then callback("action"); return end
+        local content = extract_content(decoded, is_anthropic)
+        if type(content) ~= "string" then callback("action"); return end
+        local intent = content:match("^(action)$") or content:match("^(informational)$")
+        callback(intent or "action")
+      end)
+    end,
+    on_stderr = function(_, _, _)
+      if done then return end
+      done = true
+      vim.schedule(function() callback("action") end)
+    end,
+  })
+end
+
 --- Make an AI request with tool definitions and return tool calls.
 ---@param prompt string
 ---@param callback fun(response: { name: string, arguments: table }[]|table|nil)
@@ -254,79 +299,90 @@ function AI.ask(prompt, callback, tools)
   })
 end
 
---- Send user context with tool definitions and return the chosen tool calls.
+--- Action: prompt + edit tool only.
 ---@param context { question: string, selected_text?: string, full_file: string, filetype: string }
 ---@param callback fun(response: table|nil)
-function AI.ask_with_tools(context, callback)
+function AI.ask_action(context, callback)
   local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true) ~= nil
+  local ft = context.filetype or ""
 
-  local tools = {
-    build_edit_tool(is_anthropic),
-    build_explain_tool(is_anthropic),
-  }
-
-  local prompt_parts = {}
-  table.insert(prompt_parts, "Question: " .. context.question)
-  table.insert(prompt_parts, "")
-  table.insert(prompt_parts, "Full file:")
-  table.insert(prompt_parts, "```" .. (context.filetype or "") .. "")
-  table.insert(prompt_parts, context.full_file)
-  table.insert(prompt_parts, "```")
-
+  local prompt
   if context.selected_text and context.selected_text ~= "" then
-    table.insert(prompt_parts, "")
-    table.insert(prompt_parts, "Selected text:")
-    table.insert(prompt_parts, "```")
-    table.insert(prompt_parts, context.selected_text)
-    table.insert(prompt_parts, "```")
+    prompt = "Question: " .. context.question .. "\n\n"
+      .. "Selected text:\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
+      .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```\n\n"
+      .. "CRITICAL: You must ONLY edit within the selected text shown above.\n"
+      .. "The full file is for context only — do NOT change code outside the selected region."
+  else
+    prompt = "Question: " .. context.question .. "\n\n"
+      .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
   end
 
-  table.insert(prompt_parts, "")
-  table.insert(prompt_parts, "The `edit` tool replaces EXACT text. `oldString` must match the")
-  table.insert(prompt_parts, "file content exactly (whitespace, line breaks). If it appears in")
-  table.insert(prompt_parts, "multiple places, ALL occurrences will be replaced.")
-  table.insert(prompt_parts, "")
-  table.insert(prompt_parts, "To change similar text in multiple places, provide one `edit`")
-  table.insert(prompt_parts, "call with the exact text to find — it will replace ALL matches.")
-
-  local prompt = table.concat(prompt_parts, "\n")
+  prompt = prompt .. "\n\nThe `edit` tool replaces EXACT text. `oldString` must match the"
+    .. "\nfile content exactly (whitespace, line breaks). If it appears in"
+    .. "\nmultiple places, ALL occurrences will be replaced."
+    .. "\n"
+    .. "\nTo change similar text in multiple places, provide one `edit`"
+    .. "\ncall with the exact text to find — it will replace ALL matches."
 
   AI.ask(prompt, function(resp)
-    if not resp then
-      callback(nil)
-      return
-    end
-
-    -- Tool call list
+    if not resp then callback(nil); return end
     if type(resp) == "table" and resp[1] then
       local edits = {}
-      local explains = {}
       for _, tc in ipairs(resp) do
         if tc.name == "edit" then
-          table.insert(edits, {
-            oldString = tc.arguments.oldString,
-            newString = tc.arguments.newString,
-          })
-        elseif tc.name == "explain" then
-          table.insert(explains, tc.arguments.summary)
+          table.insert(edits, { oldString = tc.arguments.oldString, newString = tc.arguments.newString, })
         end
       end
-
-      if #edits == 1 and #explains == 0 then
+      if #edits == 1 then
         callback({ edit = edits[1], })
       elseif #edits > 0 then
         callback({ edits = edits, })
-      elseif #explains > 0 then
+      else
+        callback(nil)
+      end
+      return
+    end
+    callback(resp)
+  end, { build_edit_tool(is_anthropic), })
+end
+
+--- Informational: prompt + explain tool only.
+---@param context { question: string, selected_text?: string, full_file: string, filetype: string }
+---@param callback fun(response: table|nil)
+function AI.ask_explain(context, callback)
+  local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true) ~= nil
+  local ft = context.filetype or ""
+
+  local prompt
+  if context.selected_text and context.selected_text ~= "" then
+    prompt = "Question: " .. context.question .. "\n\n"
+      .. "Selected text:\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
+      .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```\n\n"
+      .. "Explain the selected code. The full file is for context."
+  else
+    prompt = "Question: " .. context.question .. "\n\n"
+      .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
+  end
+
+  AI.ask(prompt, function(resp)
+    if not resp then callback(nil); return end
+    if type(resp) == "table" and resp[1] then
+      local explains = {}
+      for _, tc in ipairs(resp) do
+        if tc.name == "explain" then
+          table.insert(explains, tc.arguments.summary)
+        end
+      end
+      if #explains > 0 then
         callback({ summary = table.concat(explains, "\n\n---\n\n"), })
       else
         callback(nil)
       end
       return
     end
-
-    -- Fallback: error message
     callback(resp)
-  end, tools)
+  end, { build_explain_tool(is_anthropic), })
 end
 
 --- Make a synchronous test request to validate provider config.

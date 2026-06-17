@@ -22,8 +22,7 @@ function AskAI.setup(opts)
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set",
-      vim.log.levels.ERROR)
+    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set", vim.log.levels.ERROR)
     AskAI._initialized = false
     return
   end
@@ -237,19 +236,36 @@ function AskAI.ask(question)
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   local filetype = vim.bo[buf].filetype
 
-  utils.show_spinner()
-
-  ai.ask_with_tools({
+  local context = {
     question = question,
     selected_text = selected_text,
     full_file = full_file,
     filetype = filetype,
-  }, function(resp)
-    utils.hide_spinner()
-    if resp and (resp.summary or resp.edit or resp.edits) then
-      AskAI.show(buf, resp)
+  }
+
+  utils.show_spinner()
+
+  ai.classify(question, function(intent)
+    if intent == "action" then
+      ai.ask_action(context, function(resp)
+        utils.hide_spinner()
+        if resp and (resp.edit or resp.edits) then
+          AskAI.show(buf, resp)
+        elseif resp and resp.summary then
+          AskAI.show(buf, resp)
+        else
+          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+        end
+      end)
     else
-      vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+      ai.ask_explain(context, function(resp)
+        utils.hide_spinner()
+        if resp and resp.summary then
+          AskAI.show(buf, resp)
+        else
+          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+        end
+      end)
     end
   end)
 end
