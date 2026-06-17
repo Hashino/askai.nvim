@@ -34,10 +34,10 @@ local function extract_tool_call(decoded, is_anthropic)
     local msg = decoded.choices and decoded.choices[1] and decoded.choices[1].message
     if msg and msg.tool_calls then
       local call = msg.tool_calls[1]
-      if call and call.type == "function" and call.function then
-        local ok, args = pcall(vim.json.decode, call.function.arguments)
+      if call and call.type == "function" and call["function"] then
+        local ok, args = pcall(vim.json.decode, call["function"].arguments)
         if ok then
-          return { name = call.function.name, arguments = args, }
+          return { name = call["function"].name, arguments = args, }
         end
       end
     end
@@ -129,7 +129,7 @@ local function build_edit_tool(is_anthropic)
 
   return {
     type = "function",
-    function = {
+    ["function"] = {
       name = "askai_edit",
       description = "Edit code lines in the file. Call this when the user asks to change, fix, refactor, add, or modify code.",
       parameters = schema,
@@ -162,7 +162,7 @@ local function build_explain_tool(is_anthropic)
 
   return {
     type = "function",
-    function = {
+    ["function"] = {
       name = "askai_explain",
       description = "Explain code or answer a question. Call this when the user asks a question, wants an explanation, or wants to understand code.",
       parameters = schema,
