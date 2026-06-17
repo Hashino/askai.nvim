@@ -12,9 +12,17 @@ local AI = {}
 local function extract_content(body, is_anthropic)
   if is_anthropic then
     return body.content and body.content[1] and body.content[1].text
-  else
-    return body.choices and body.choices[1] and body.choices[1].message.content
   end
+  local msg = body.choices and body.choices[1] and body.choices[1].message
+  if msg then
+    if type(msg.content) == "string" then
+      return msg.content
+    end
+    if type(msg.reasoning) == "string" then
+      return msg.reasoning
+    end
+  end
+  return nil
 end
 
 --- Extract a tool call from the API response.

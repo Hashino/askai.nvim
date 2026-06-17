@@ -22,8 +22,7 @@ function AskAI.setup(opts)
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set",
-      vim.log.levels.ERROR)
+    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set", vim.log.levels.ERROR)
     AskAI._initialized = false
     return
   end
