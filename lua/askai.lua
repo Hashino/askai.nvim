@@ -44,9 +44,14 @@ function AskAI.setup(opts)
 end
 
 --- Main entry point: ask the AI a question with context.
+---
+--- `selection` is the selected code to focus on. When omitted, it is detected
+--- automatically: if the editor is currently in visual mode the live selection
+--- is captured, otherwise the request has no selection. The `:AskAI` command
+--- passes its range text explicitly through this argument.
 ---@param question? string
----@param line? integer range start (0 if no range)
-function AskAI.ask(question, line)
+---@param selection? string selected code (auto-detected from visual mode if nil)
+function AskAI.ask(question, selection)
   if not AskAI._initialized then
     vim.notify(
       "[askai.nvim] Plugin not properly initialized. Call askai.setup() with a valid config first.",
@@ -60,7 +65,9 @@ function AskAI.ask(question, line)
     return
   end
 
-  local ctx = utils.get_visual_context(buf, line)
+  if selection == nil then
+    selection = utils.get_visual_selection(buf)
+  end
 
   if question == nil or question == "" then
     question = vim.fn.input("Ask AI: ")
@@ -68,9 +75,9 @@ function AskAI.ask(question, line)
   end
   local context = {
     question = question,
-    selected_text = ctx.selected_text,
-    full_file = ctx.full_file,
-    filetype = ctx.filetype,
+    selected_text = selection or "",
+    full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"),
+    filetype = vim.bo[buf].filetype,
   }
 
   utils.show_spinner()

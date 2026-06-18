@@ -9,50 +9,46 @@ local spinner_win = nil ---@type integer?
 local spinner_timer = nil
 local spinner_idx = 1 ---@type integer
 
---- Extract visual selection text and its 0-indexed start line.
---- Uses marks `<` and `>` which persist after exiting visual mode.
+--- Extract the text the user is selecting *right now*.
+--- Returns nil unless the editor is currently in visual mode, so stale `<`/`>`
+--- marks from a previous selection can never leak into a later request.
+--- Reads the live endpoints with `getpos("v")` (selection start) and
+--- `getpos(".")` (cursor), which are valid while visual mode is active.
 ---@param buf integer buffer handle
----@return string|nil, integer|nil
+---@return string|nil selection
 function Utils.get_visual_selection(buf)
-  if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then
-    return nil, nil
+  local mode = vim.fn.mode()
+  if mode ~= "v" and mode ~= "V" and mode ~= "\22" then
+    return nil
   end
 
-  local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
-  local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
+  local s = vim.fn.getpos("v")
+  local e = vim.fn.getpos(".")
+  local s_line, s_col = s[2], s[3]
+  local e_line, e_col = e[2], e[3]
 
-  -- No visual selection marks set
-  if start_pos[1] == 0 and end_pos[1] == 0 then
-    return nil, nil
+  -- Ensure start <= end (the cursor may be before the anchor)
+  if s_line > e_line or (s_line == e_line and s_col > e_col) then
+    s_line, e_line = e_line, s_line
+    s_col, e_col = e_col, s_col
   end
 
-  -- Determine visual mode type from visualmode()
-  local visual_mode = vim.fn.visualmode()
+  local lines = vim.api.nvim_buf_get_lines(buf, s_line - 1, e_line, false)
+  if #lines == 0 then return nil end
 
-  -- Ensure start <= end
-  if start_pos[1] > end_pos[1]
-      or (start_pos[1] == end_pos[1] and start_pos[2] > end_pos[2]) then
-    start_pos, end_pos = end_pos, start_pos
+  -- Line-wise (V): whole lines, columns are irrelevant
+  if mode == "V" then
+    return table.concat(lines, "\n")
   end
 
-  local start_line = start_pos[1] - 1
-  local lines = vim.api.nvim_buf_get_lines(buf, start_line, end_pos[1], false)
-  if #lines == 0 then return nil, nil end
-
-  -- Handle character-wise (v) and block-wise (^V) visual mode
-  if visual_mode == "v" or visual_mode == "\22" then
-    lines[1] = string.sub(lines[1], start_pos[2] + 1)
-    if #lines == 1 then
-      lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] - start_pos[2] + 1)
-    else
-      lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] + 1)
-    end
+  -- Char-wise (v) and block-wise (^V, approximated as a char span)
+  if #lines == 1 then
+    lines[1] = string.sub(lines[1], s_col, e_col)
+  else
+    lines[1] = string.sub(lines[1], s_col)
+    lines[#lines] = string.sub(lines[#lines], 1, e_col)
   end
-
-  -- Line-wise (V) visual mode: start_pos[2] is already 0, lines are full
-  -- No adjustment needed for line-wise
-
-  return table.concat(lines, "\n"), start_line
+  return table.concat(lines, "\n")
 end
 
 --- Show a braille spinner in the bottom-right corner.
@@ -137,43 +133,6 @@ function Utils.apply_edits(buf, edits)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false,
     vim.split(content, "\n", { plain = true, }))
   return true
-end
-
---- Get visual selection context for AI request.
---- Returns selected_text (empty if no valid selection) and full_file.
----@param buf integer
----@param line? integer range start (0 if no range)
----@return { selected_text: string, full_file: string, filetype: string }
-function Utils.get_visual_context(buf, line)
-  local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-  local filetype = vim.bo[buf].filetype
-
-  -- Determine if we have a visual selection:
-  -- 1. Explicit range from command (:'<,'>AskAI) -> line > 0
-  -- 2. Called directly from visual mode keymap -> currently in visual mode
-  -- Otherwise, ignore stale marks from previous visual selections
-  local mode = vim.api.nvim_get_mode().mode
-  local has_selection = false
-  if line and line > 0 then
-    has_selection = true
-  elseif mode == "v" or mode == "V" or mode == "\22" then
-    has_selection = true
-  end
-
-  local selected_text = ""
-  if has_selection then
-    selected_text = Utils.get_visual_selection(buf) or ""
-    -- If selection is empty (stale marks), treat as no selection
-    if selected_text == "" then
-      has_selection = false
-    end
-  end
-
-  return {
-    selected_text = selected_text,
-    full_file = full_file,
-    filetype = filetype,
-  }
 end
 
 --- Build diff content string from edits.

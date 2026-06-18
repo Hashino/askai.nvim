@@ -30,6 +30,24 @@ local function extract_content(body, is_anthropic)
   return nil
 end
 
+--- Extract a human-readable error message from an API error response.
+--- Handles the common shapes: `{ error = "msg", message = "..." }` (Mercury),
+--- `{ error = { message = "..." } }` (OpenAI/Anthropic).
+---@param decoded table
+---@return string|nil
+local function extract_error(decoded)
+  local err = decoded.error
+  if type(err) == "string" then
+    if type(decoded.message) == "string" and decoded.message ~= "" then
+      return err .. ": " .. decoded.message
+    end
+    return err
+  elseif type(err) == "table" then
+    return err.message or err.type or vim.json.encode(err)
+  end
+  return nil
+end
+
 --- Extract all tool calls from the API response.
 ---@param decoded table
 ---@param is_anthropic boolean
@@ -216,23 +234,20 @@ end
 ---@param question string
 ---@param callback fun(intent: string)
 function AI.classify(question, callback)
-  local classify_prompt = [[Classify the user request as "action" or "informational".
-Reply with exactly one word: "action" or "informational".
+  local classify_prompt = [[Classify the request below. Reply with exactly one word:
 
-- "action": user wants to MODIFY code (add, change, remove, fix, refactor, insert, delete, update).
-- "informational": user wants to UNDERSTAND code (explain, how, why, what, describe, question).
+- "action": the user wants to change the code (add, fix, refactor, remove, rename...).
+- "informational": the user wants to understand the code or get an answer (explain, how, why, what...).
 
 Examples:
-User: add emojis to all notifications -> action
-User: explain this function -> informational
-User: fix the bug in line 10 -> action
-User: what is this file about? -> informational
-User: how does this work? -> informational
-User: refactor this code -> action
-User: why is this slow? -> informational
-User: remove the unused variable -> action
+fix the bug on line 10 -> action
+refactor this function -> action
+remove the unused variable -> action
+explain this function -> informational
+what does this file do? -> informational
+why is this slow? -> informational
 
-User: ]] .. question
+Request: ]] .. question
 
   local headers, body, is_anthropic = build_request(classify_prompt)
 
@@ -244,28 +259,29 @@ User: ]] .. question
   table.insert(cmd, "-d")
   table.insert(cmd, body)
 
-  local done = false
+  -- Collect the full stdout and decide once, on exit. Doing the work in
+  -- on_stdout/on_stderr races against Neovim's trailing empty `['']` event,
+  -- which would otherwise resolve the classification prematurely.
+  local stdout_data = {}
   vim.fn.jobstart(cmd, {
     stdout_buffered = true,
     on_stdout = function(_, data, _)
-      if done then return end
-      if not data then callback("action"); return end
-      vim.schedule(function()
-        if done then return end
-        done = true
-        local output = table.concat(data, "")
-        local ok, decoded = pcall(vim.json.decode, output)
-        if not ok then callback("action"); return end
-        local content = extract_content(decoded, is_anthropic)
-        if type(content) ~= "string" then callback("action"); return end
-        local intent = content:match("^(action)$") or content:match("^(informational)$")
-        callback(intent or "action")
-      end)
+      if data then vim.list_extend(stdout_data, data) end
     end,
-    on_stderr = function(_, _, _)
-      if done then return end
-      done = true
-      vim.schedule(function() callback("action") end)
+    on_exit = function()
+      -- Default to "action" (the safe, reversible path) on any failure.
+      local output = table.concat(stdout_data, "\n")
+      local ok, decoded = pcall(vim.json.decode, output)
+      if not ok then callback("action"); return end
+      local content = extract_content(decoded, is_anthropic)
+      if type(content) ~= "string" then callback("action"); return end
+      -- Be lenient: the model may wrap the word in punctuation, capitalize
+      -- it, or precede it with reasoning. Only "informational" flips intent.
+      if content:lower():find("informational", 1, true) then
+        callback("informational")
+      else
+        callback("action")
+      end
     end,
   })
 end
@@ -285,66 +301,66 @@ function AI.ask(prompt, callback, tools)
   table.insert(cmd, "-d")
   table.insert(cmd, body)
 
-  local done = false
+  -- Collect stdout/stderr and resolve once on exit, to avoid racing against
+  -- Neovim's trailing empty `['']` stream event.
+  local stdout_data = {}
+  local stderr_data = {}
   vim.fn.jobstart(cmd, {
     stdout_buffered = true,
+    stderr_buffered = true,
     on_stdout = function(_, data, _)
-      if done then return end
-      if not data then return end
+      if data then vim.list_extend(stdout_data, data) end
+    end,
+    on_stderr = function(_, data, _)
+      if data then vim.list_extend(stderr_data, data) end
+    end,
+    on_exit = function()
+      local output = table.concat(stdout_data, "\n")
 
-      vim.schedule(function()
-        if done then return end
-        done = true
-
-        local output = table.concat(data, "")
-
-        if output == nil or vim.trim(output) == "" then
+      if vim.trim(output) == "" then
+        local err = vim.trim(table.concat(stderr_data, "\n"))
+        if err ~= "" then
+          callback({ summary = "Request error:\n```\n" .. err .. "\n```", })
+        else
           callback({
             summary = "The AI provider returned an empty response.\n\n"
               .. "Check that your **api_url** is correct and your network can reach it.\n\n"
               .. "Current url: `" .. config.options.provider.api_url .. "`",
           })
-          return
         end
+        return
+      end
 
-        local ok, decoded = pcall(vim.json.decode, output)
-        if not ok then
-          callback({ summary = "Could not parse API response:\n```\n" .. output .. "\n```", })
-          return
-        end
+      local ok, decoded = pcall(vim.json.decode, output)
+      if not ok then
+        callback({ summary = "Could not parse API response:\n```\n" .. output .. "\n```", })
+        return
+      end
 
-        -- Tool calling path
-        local tool_calls = extract_tool_calls(decoded, is_anthropic)
-        if #tool_calls > 0 then
-          callback(tool_calls)
-          return
-        end
+      -- Surface API errors (bad key, server error, ...) in a readable way.
+      local api_err = extract_error(decoded)
+      if api_err then
+        callback({ summary = "The AI provider returned an error:\n\n" .. api_err, })
+        return
+      end
 
-        -- Content-only fallback
-        local content = extract_content(decoded, is_anthropic)
-        if type(content) == "string" and content ~= "" then
-          callback({ summary = content, })
-        else
-          callback({
-            summary = "The AI returned an empty response.\n\n"
-              .. "Raw API response:\n```json\n" .. output .. "\n```",
-          })
-        end
-      end)
-    end,
-    on_stderr = function(_, data, _)
-      if done then return end
-      if not data then return end
-      vim.schedule(function()
-        if done then return end
-        done = true
-        local err = table.concat(data, "")
-        if err and err ~= "" then
-          callback({ summary = "Request error:\n```\n" .. err .. "\n```", })
-        else
-          callback({ summary = "No response from AI.", })
-        end
-      end)
+      -- Tool calling path
+      local tool_calls = extract_tool_calls(decoded, is_anthropic)
+      if #tool_calls > 0 then
+        callback(tool_calls)
+        return
+      end
+
+      -- Content-only fallback
+      local content = extract_content(decoded, is_anthropic)
+      if type(content) == "string" and content ~= "" then
+        callback({ summary = content, })
+      else
+        callback({
+          summary = "The AI returned an empty response.\n\n"
+            .. "Raw API response:\n```json\n" .. output .. "\n```",
+        })
+      end
     end,
   })
 end
@@ -358,23 +374,18 @@ function AI.ask_action(context, callback)
 
   local prompt
   if context.selected_text and context.selected_text ~= "" then
-    prompt = "Question: " .. context.question .. "\n\n"
-      .. "Selected text:\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
-      .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```\n\n"
-      .. "CRITICAL: You must ONLY edit within the selected text shown above.\n"
-      .. "The full file is for context only — do NOT change code outside the selected region."
+    prompt = "Edit only the selected code to satisfy this request: " .. context.question .. "\n\n"
+      .. "Selection (edit ONLY this):\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
+      .. "Full file (context only, do NOT edit outside the selection):\n"
+      .. "```" .. ft .. "\n" .. context.full_file .. "\n```"
   else
-    prompt = "Question: " .. context.question .. "\n\n"
-      .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
+    prompt = "Edit the file to satisfy this request: " .. context.question .. "\n\n"
+      .. "```" .. ft .. "\n" .. context.full_file .. "\n```"
   end
 
-  prompt = prompt .. "\n\nThe `edit` tool replaces EXACT text. `oldString` must match the"
-    .. "\nfile content exactly (whitespace, line breaks). Only the FIRST"
-    .. "\nmatching occurrence will be replaced."
-    .. "\n"
-    .. "\nThe `edit_all` tool also replaces EXACT text, but replaces ALL"
-    .. "\nmatching occurrences. Use this when the same text appears in"
-    .. "\nmultiple places and you want to change all of them."
+  prompt = prompt .. "\n\nApply changes with the `edit` tool (replaces the first exact match) or"
+    .. "\n`edit_all` (replaces every match). `oldString` must match the file"
+    .. "\nexactly, including whitespace and line breaks."
 
   AI.ask(prompt, function(resp)
     if not resp then callback(nil); return end
@@ -407,16 +418,16 @@ function AI.ask_explain(context, callback)
 
   local prompt
   if context.selected_text and context.selected_text ~= "" then
-    prompt = "Question: " .. context.question .. "\n\n"
-      .. "Selected text:\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
-      .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```\n\n"
-      .. "Explain the selected code. The full file is for context."
+    prompt = "Answer this question about the selected code: " .. context.question .. "\n\n"
+      .. "Selection (focus on this):\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
+      .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```"
   else
-    prompt = "Question: " .. context.question .. "\n\n"
-      .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
+    prompt = "Answer this question about the file: " .. context.question .. "\n\n"
+      .. "```" .. ft .. "\n" .. context.full_file .. "\n```"
   end
 
-  prompt = prompt .. "\n\nAlways use fenced code blocks with language annotation (e.g., ```lua, ```python) in your responses."
+  prompt = prompt .. "\n\nAnswer with the `explain` tool. Use Markdown, and put code in"
+    .. "\nfenced blocks annotated with the language (e.g. ```" .. (ft ~= "" and ft or "lua") .. ")."
 
   AI.ask(prompt, function(resp)
     if not resp then callback(nil); return end
@@ -493,6 +504,12 @@ function AI.validate_provider(callback)
       local ok, decoded = pcall(vim.json.decode, output)
       if not ok then
         callback({ success = false, error = "Could not parse API response: " .. output, })
+        return
+      end
+
+      local api_err = extract_error(decoded)
+      if api_err then
+        callback({ success = false, error = api_err, })
         return
       end
 
