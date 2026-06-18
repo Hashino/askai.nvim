@@ -109,4 +109,63 @@ function Utils.hide_spinner()
   end
 end
 
+--- Apply edits to a buffer. Replaces all occurrences of each oldString.
+---@param buf integer
+---@param edits { oldString: string, newString: string }[]
+---@return boolean ok
+---@return string? err
+function Utils.apply_edits(buf, edits)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local content = table.concat(lines, "\n")
+
+  for _, e in ipairs(edits) do
+    local first = content:find(e.oldString, 1, true)
+    if not first then
+      return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
+    end
+    content = content:gsub(vim.pesc(e.oldString), e.newString)
+  end
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+    vim.split(content, "\n", { plain = true, }))
+  return true
+end
+
+--- Get visual selection context for AI request.
+--- Returns selected_text (empty if no valid selection) and full_file.
+---@param buf integer
+---@param line? integer range start (0 if no range)
+---@return { selected_text: string, full_file: string, filetype: string }
+function Utils.get_visual_context(buf, line)
+  local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  local filetype = vim.bo[buf].filetype
+
+  -- Determine if we have a visual selection:
+  -- 1. Explicit range from command (:'<,'>AskAI) -> line > 0
+  -- 2. Called directly from visual mode keymap -> currently in visual mode
+  -- Otherwise, ignore stale marks from previous visual selections
+  local mode = vim.api.nvim_get_mode().mode
+  local has_selection = false
+  if line and line > 0 then
+    has_selection = true
+  elseif mode == "v" or mode == "V" or mode == "\22" then
+    has_selection = true
+  end
+
+  local selected_text = ""
+  if has_selection then
+    selected_text = Utils.get_visual_selection(buf) or ""
+    -- If selection is empty (stale marks), treat as no selection
+    if selected_text == "" then
+      has_selection = false
+    end
+  end
+
+  return {
+    selected_text = selected_text,
+    full_file = full_file,
+    filetype = filetype,
+  }
+end
+
 return Utils

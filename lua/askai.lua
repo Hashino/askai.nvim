@@ -3,11 +3,10 @@ local ai     = require("askai.ai")
 local utils  = require("askai.utils")
 
 ---@class askai.AskAI [Hashino/askai.nvim] main module
-
+---@field win_id? integer the id of floating window, or nil if none is being displayed
+---@field _initialized boolean wether the plugin was properly setup
 local AskAI  = {
   win_id = nil,
-
-  ---@type boolean
   _initialized = false,
 }
 
@@ -44,33 +43,6 @@ function AskAI.setup(opts)
     vim.notify("[askai.nvim] provider validated successfully", vim.log.levels.INFO)
     AskAI._initialized = true
   end)
-end
-
---- Apply edit(s) to a buffer. Validates oldString uniqueness, replaces all
---- edits in memory first, then writes the buffer once (single undo point).
----@param buf integer
----@param edits { oldString: string, newString: string }[]
----@return boolean ok
----@return string? err
-local function apply_edits(buf, edits)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local content = table.concat(lines, "\n")
-
-  for _, e in ipairs(edits) do
-    local first = content:find(e.oldString, 1, true)
-    if not first then
-      return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
-    end
-    local second = content:find(e.oldString, first + 1, true)
-    if second then
-      return false, "oldString appears multiple times; provide more context"
-    end
-    content = content:sub(1, first - 1) .. e.newString .. content:sub(first + #e.oldString)
-  end
-
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false,
-    vim.split(content, "\n", { plain = true, }))
-  return true
 end
 
 --- Show a floating window with the AI response or diff preview.
@@ -189,7 +161,7 @@ function AskAI.show(toedit, response)
       AskAI.win_id = nil
       if vim.api.nvim_buf_is_valid(toedit)
           and vim.api.nvim_buf_is_loaded(toedit) then
-        local ok, err = apply_edits(toedit, edits)
+        local ok, err = utils.apply_edits(toedit, edits)
         if not ok then
           vim.notify("[askai.nvim] failed to apply edits: " .. err, vim.log.levels.ERROR)
         end
@@ -212,7 +184,8 @@ end
 ---@param line? integer range start (0 if no range)
 function AskAI.ask(question, line)
   if not AskAI._initialized then
-    vim.notify("[askai.nvim] Plugin not initialized. Call askai.setup() first.",
+    vim.notify(
+      "[askai.nvim] Plugin not properly initialized. Call askai.setup() with a valid config first.",
       vim.log.levels.ERROR)
     return
   end
@@ -228,35 +201,12 @@ function AskAI.ask(question, line)
     return
   end
 
-  -- Determine if we have a visual selection:
-  -- 1. Explicit range from command (:'<,'>AskAI) -> line > 0
-  -- 2. Called directly from visual mode keymap -> currently in visual mode
-  -- Otherwise, ignore stale marks from previous visual selections
-  local mode = vim.api.nvim_get_mode().mode
-  local has_selection = false
-  if line and line > 0 then
-    has_selection = true
-  elseif mode == "v" or mode == "V" or mode == "\22" then
-    has_selection = true
-  end
-
-  local selected_text = ""
-  if has_selection then
-    selected_text = utils.get_visual_selection(buf) or ""
-    -- If selection is empty (stale marks), treat as no selection
-    if selected_text == "" then
-      has_selection = false
-    end
-  end
-
-  local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-  local filetype = vim.bo[buf].filetype
-
+  local ctx = utils.get_visual_context(buf, line)
   local context = {
     question = question,
-    selected_text = selected_text,
-    full_file = full_file,
-    filetype = filetype,
+    selected_text = ctx.selected_text,
+    full_file = ctx.full_file,
+    filetype = ctx.filetype,
   }
 
   utils.show_spinner()
