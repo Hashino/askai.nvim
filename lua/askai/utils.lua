@@ -14,6 +14,9 @@ local spinner_idx = 1 ---@type integer
 ---@return string|nil, integer|nil
 function Utils.get_visual_selection(buf)
   local mode = vim.fn.visualmode()
+  local cur_mode = vim.api.nvim_get_mode().mode
+  vim.notify("[askai debug] get_visual_selection: visualmode=[" .. (mode or "nil") .. "] get_mode=[" .. (cur_mode or "nil") .. "]", vim.log.levels.INFO)
+
   if not mode or mode == "" then
     local cur = vim.api.nvim_get_mode().mode
     if cur == "v" or cur == "V" then
@@ -21,6 +24,7 @@ function Utils.get_visual_selection(buf)
     elseif cur == "\22" then
       mode = "\22"
     else
+      vim.notify("[askai debug] no visual mode detected, returning nil", vim.log.levels.INFO)
       return nil, nil
     end
   end
@@ -31,6 +35,7 @@ function Utils.get_visual_selection(buf)
 
   local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
   local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
+  vim.notify("[askai debug] marks: start=[" .. start_pos[1] .. "," .. start_pos[2] .. "] end=[" .. end_pos[1] .. "," .. end_pos[2] .. "]", vim.log.levels.INFO)
 
   if start_pos[1] == 0 and end_pos[1] == 0 then
     local v_start = vim.fn.getpos("v")
