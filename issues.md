@@ -26,11 +26,11 @@
 - code style and quality should match my other plugins installed on the system: learning.nvim and
   doing.nvim with doing.nvim being the ground truth for code style, quality and structure.
 
+> [!IMPORTANT]
+> reliability, simplicity and readability, in this order, should be the core goals of the codebase.
+
 # proposed solution
 do a deep research on the neovim documention and reddit questions about similar issues with
 reliability of detecting selection and do a rewrite of the get selection logic and checking if
 code is actually selected. also search other plugins that integrate AI with nvim and see if they do
 something similar.
-
-# IMPORTANT
-reliability, simplicity and readability, in this order, should be the core goals of the codebase.

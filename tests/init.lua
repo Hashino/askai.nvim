@@ -13,11 +13,11 @@ require("askai").setup({
     api_url = "https://opencode.ai/zen/v1/chat/completions",
     api_key = "dummy",                 -- free Zen models; only needs to be non-empty
     model   = "nemotron-3-ultra-free", -- free; supports tool calling
-    headers = { Authorization = "", },  -- DEV ONLY: Zen free tier wants no auth header
+    headers = { Authorization = "", }, -- DEV ONLY: Zen free tier wants no auth header
   },
-  keys = { confirm = "<C-a>", },        -- PTY-sendable confirm key (see tests.md)
+  keys = { confirm = "<C-a>", },       -- PTY-sendable confirm key (see tests.md)
 })
 
 vim.keymap.set({ "n", "v", }, "<leader>ai", function()
   require("askai").ask()
-end, { desc = "[A]sk [A]I", })
+end, { desc = "[A]sk A[I]", })

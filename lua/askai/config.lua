@@ -19,8 +19,8 @@ Config.options = {
   provider = { api_key = "", api_url = "", model = "", },
 
   ---@class askai.Config.Keys
-  ---@field confirm string keymap to accept the suggested edit
-  ---@field dismiss string keymap to dismiss the floating window
+  ---@field confirm? string keymap to accept the suggested edit
+  ---@field dismiss? string keymap to dismiss the floating window
   keys = { confirm = "<S-CR>", dismiss = "<Esc>", },
 
   spinner_characters = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷", },
