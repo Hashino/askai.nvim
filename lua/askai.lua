@@ -77,12 +77,11 @@ function AskAI.ask(question, line)
   utils.show_spinner()
 
   ai.classify(question, function(intent)
+    utils.hide_spinner()
+
     if intent == "action" then
       ai.ask_action(context, function(resp)
-        utils.hide_spinner()
-        if resp and (resp.edit or resp.edits) then
-          AskAI.show(buf, resp)
-        elseif resp and resp.summary then
+        if resp and resp.edits then
           AskAI.show(buf, resp)
         else
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
@@ -90,7 +89,6 @@ function AskAI.ask(question, line)
       end)
     else
       ai.ask_explain(context, function(resp)
-        utils.hide_spinner()
         if resp and resp.summary then
           AskAI.show(buf, resp)
         else
@@ -105,8 +103,7 @@ end
 ---@param toedit integer buffer to apply edits to
 ---@param response { summary?: string, edits?: { oldString: string, newString: string }[] }
 function AskAI.show(toedit, response)
-  if not response then return end
-  if not response.summary and not response.edits then return end
+  if not response or (response.summary and not response.edits) then return end
 
   local edits = response.edits or {}
   ---@type string
