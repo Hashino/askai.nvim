@@ -22,7 +22,7 @@ function AskAI.setup(opts)
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("⚠️ [askai.nvim] 🔧 provider.api_url, provider.model and api_key must be set 🔑", vim.log.levels.ERROR)
+    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set", vim.log.levels.ERROR)
     AskAI._initialized = false
     return
   end
@@ -243,20 +243,20 @@ function AskAI.ask(question, line)
   end
 
   local mode = vim.api.nvim_get_mode().mode
-  vim.notify("[askai] line=" .. tostring(line) .. " mode=" .. mode .. " line>0=" .. tostring(line and line > 0) .. " mode_is_visual=" .. tostring(mode == "v" or mode == "V" or mode == "\22"), vim.log.levels.INFO)
-
   local has_selection = false
   if line and line > 0 then
     has_selection = true
   else
     has_selection = (mode == "v" or mode == "V" or mode == "\22")
   end
-  vim.notify("[askai] has_selection=" .. tostring(has_selection), vim.log.levels.INFO)
 
   local selected_text = ""
   if has_selection then
     selected_text = utils.get_visual_selection(buf) or ""
-    vim.notify("[askai] selected_text len=" .. #selected_text .. " text=" .. string.sub(selected_text, 1, 50), vim.log.levels.INFO)
+    -- If selection is empty, treat as no selection
+    if selected_text == "" then
+      has_selection = false
+    end
   end
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
