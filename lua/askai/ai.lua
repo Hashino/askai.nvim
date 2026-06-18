@@ -433,11 +433,6 @@ function AI.validate_provider(callback)
       end
     end,
     on_exit = function(_, code, _)
-      if job_id <= 0 then
-        callback({ success = false, error = "Failed to start curl process", })
-        return
-      end
-
       if code ~= 0 then
         local err = table.concat(stderr_data, "")
         callback({
