@@ -232,31 +232,20 @@ function AskAI.ask(question, line)
   end
 
   -- Determine if we have a visual selection:
-  -- 1. Explicit range from command (:'<,'>AskAI) -> line1 > 0
-  -- 2. Called directly from visual mode keymap -> check current mode
-  local has_selection = false
-  if line and line > 0 then
-    has_selection = true
-  else
-    local mode = vim.api.nvim_get_mode().mode
-    has_selection = (mode == "v" or mode == "V" or mode == "\22")
-  end
-
+  -- 1. Explicit range from command (:'<,'>AskAI) -> line > 0
+  -- 2. Called directly from visual mode keymap -> currently in visual mode
+  -- Otherwise, ignore stale marks from previous visual selections
   local mode = vim.api.nvim_get_mode().mode
   local has_selection = false
   if line and line > 0 then
     has_selection = true
-  else
-    has_selection = (mode == "v" or mode == "V" or mode == "\22")
+  elseif mode == "v" or mode == "V" or mode == "\22" then
+    has_selection = true
   end
 
   local selected_text = ""
   if has_selection then
     selected_text = utils.get_visual_selection(buf) or ""
-    -- If selection is empty, treat as no selection
-    if selected_text == "" then
-      has_selection = false
-    end
   end
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
