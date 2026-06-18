@@ -109,9 +109,11 @@ function Utils.hide_spinner()
   end
 end
 
---- Apply edits to a buffer. Replaces all occurrences of each oldString.
+--- Apply edits to a buffer.
+--- When e.all is true, replaces ALL occurrences of oldString.
+--- When e.all is false, replaces only the FIRST occurrence.
 ---@param buf integer
----@param edits { oldString: string, newString: string }[]
+---@param edits { oldString: string, newString: string, all: boolean }[]
 ---@return boolean ok
 ---@return string? err
 function Utils.apply_edits(buf, edits)
@@ -123,7 +125,13 @@ function Utils.apply_edits(buf, edits)
     if not first then
       return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
     end
-    content = content:gsub(vim.pesc(e.oldString), e.newString)
+    if e.all then
+      content = content:gsub(vim.pesc(e.oldString), e.newString)
+    else
+      local before = content:sub(1, first - 1)
+      local after = content:sub(first + #e.oldString)
+      content = before .. e.newString .. after
+    end
   end
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false,
@@ -169,7 +177,7 @@ function Utils.get_visual_context(buf, line)
 end
 
 --- Build diff content string from edits.
----@param edits { oldString: string, newString: string }[]
+---@param edits { oldString: string, newString: string, all: boolean }[]
 ---@param summary? string
 ---@return string content
 function Utils.build_diff(edits, summary)

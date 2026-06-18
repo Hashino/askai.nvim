@@ -108,13 +108,13 @@ end
 --- Build the `edit` tool definition in the provider's format.
 ---@param is_anthropic boolean
 ---@return table
-local function build_edit_tool(is_anthropic)
+local function build_edit_single_tool(is_anthropic)
   local schema = {
     type = "object",
     properties = {
       oldString = {
         type = "string",
-        description = "The EXACT text to find in the file. Must match whitespace and line breaks exactly. Must be unique in the file.",
+        description = "The EXACT text to find in the file. Must match whitespace and line breaks exactly.",
       },
       newString = {
         type = "string",
@@ -127,7 +127,7 @@ local function build_edit_tool(is_anthropic)
   if is_anthropic then
     return {
       name = "edit",
-      description = "Edit code by replacing exact text. If the oldString appears in multiple places, ALL occurrences will be replaced.",
+      description = "Edit code by replacing exact text. Only the FIRST matching occurrence of oldString will be replaced.",
       input_schema = schema,
     }
   end
@@ -136,7 +136,44 @@ local function build_edit_tool(is_anthropic)
     type = "function",
     ["function"] = {
       name = "edit",
-      description = "Edit code by replacing exact text. If the oldString appears in multiple places, ALL occurrences will be replaced.",
+      description = "Edit code by replacing exact text. Only the FIRST matching occurrence of oldString will be replaced.",
+      parameters = schema,
+    },
+  }
+end
+
+--- Build the `edit_all` tool definition in the provider's format.
+---@param is_anthropic boolean
+---@return table
+local function build_edit_all_tool(is_anthropic)
+  local schema = {
+    type = "object",
+    properties = {
+      oldString = {
+        type = "string",
+        description = "The EXACT text to find in the file. Must match whitespace and line breaks exactly. All occurrences will be replaced.",
+      },
+      newString = {
+        type = "string",
+        description = "The replacement text",
+      },
+    },
+    required = { "oldString", "newString", },
+  }
+
+  if is_anthropic then
+    return {
+      name = "edit_all",
+      description = "Edit code by replacing exact text. ALL occurrences of oldString will be replaced with newString.",
+      input_schema = schema,
+    }
+  end
+
+  return {
+    type = "function",
+    ["function"] = {
+      name = "edit_all",
+      description = "Edit code by replacing exact text. ALL occurrences of oldString will be replaced with newString.",
       parameters = schema,
     },
   }
@@ -332,11 +369,12 @@ function AI.ask_action(context, callback)
   end
 
   prompt = prompt .. "\n\nThe `edit` tool replaces EXACT text. `oldString` must match the"
-    .. "\nfile content exactly (whitespace, line breaks). If it appears in"
-    .. "\nmultiple places, ALL occurrences will be replaced."
+    .. "\nfile content exactly (whitespace, line breaks). Only the FIRST"
+    .. "\nmatching occurrence will be replaced."
     .. "\n"
-    .. "\nTo change similar text in multiple places, provide one `edit`"
-    .. "\ncall with the exact text to find — it will replace ALL matches."
+    .. "\nThe `edit_all` tool also replaces EXACT text, but replaces ALL"
+    .. "\nmatching occurrences. Use this when the same text appears in"
+    .. "\nmultiple places and you want to change all of them."
 
   AI.ask(prompt, function(resp)
     if not resp then callback(nil); return end
@@ -344,7 +382,9 @@ function AI.ask_action(context, callback)
       local edits = {}
       for _, tc in ipairs(resp) do
         if tc.name == "edit" then
-          table.insert(edits, { oldString = tc.arguments.oldString, newString = tc.arguments.newString, })
+          table.insert(edits, { oldString = tc.arguments.oldString, newString = tc.arguments.newString, all = false, })
+        elseif tc.name == "edit_all" then
+          table.insert(edits, { oldString = tc.arguments.oldString, newString = tc.arguments.newString, all = true, })
         end
       end
       if #edits > 0 then
@@ -355,7 +395,7 @@ function AI.ask_action(context, callback)
       return
     end
     callback(resp)
-  end, { build_edit_tool(is_anthropic), })
+  end, { build_edit_single_tool(is_anthropic), build_edit_all_tool(is_anthropic), })
 end
 
 --- Informational: prompt + explain tool only.

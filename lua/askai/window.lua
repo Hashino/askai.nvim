@@ -82,7 +82,7 @@ end
 --- Setup diff window with confirm keymap and winbar.
 ---@param buf integer
 ---@param toedit integer
----@param edits { oldString: string, newString: string }[]
+---@param edits { oldString: string, newString: string, all: boolean }[]
 function M.setup_diff_window(buf, toedit, edits)
   if not M.win_id then return end
 

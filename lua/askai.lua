@@ -54,11 +54,6 @@ function AskAI.ask(question, line)
     return
   end
 
-  if question == nil or question == "" then
-    question = vim.fn.input("Ask AI: ")
-    if question == "" then return end
-  end
-
   local buf = vim.api.nvim_get_current_buf()
   if not (vim.api.nvim_buf_is_valid(buf)
         and vim.api.nvim_buf_is_loaded(buf)) then
@@ -66,6 +61,11 @@ function AskAI.ask(question, line)
   end
 
   local ctx = utils.get_visual_context(buf, line)
+
+  if question == nil or question == "" then
+    question = vim.fn.input("Ask AI: ")
+    if question == "" then return end
+  end
   local context = {
     question = question,
     selected_text = ctx.selected_text,
@@ -76,10 +76,9 @@ function AskAI.ask(question, line)
   utils.show_spinner()
 
   ai.classify(question, function(intent)
-    utils.hide_spinner()
-
     if intent == "action" then
       ai.ask_action(context, function(resp)
+        utils.hide_spinner()
         if resp and resp.edits then
           local content = utils.build_diff(resp.edits)
           local filetype = context.filetype
@@ -94,6 +93,7 @@ function AskAI.ask(question, line)
       end)
     elseif intent == "informational" then
       ai.ask_explain(context, function(resp)
+        utils.hide_spinner()
         if resp and resp.summary then
           local wbuf = window.create_window(resp.summary, nil, false)
           window.setup_summary_window(wbuf)
