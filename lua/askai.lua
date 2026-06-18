@@ -242,9 +242,12 @@ function AskAI.ask(question, line)
     has_selection = (mode == "v" or mode == "V" or mode == "\22")
   end
 
+  vim.notify("[askai] line=" .. tostring(line) .. " mode=" .. vim.api.nvim_get_mode().mode .. " has_selection=" .. tostring(has_selection), vim.log.levels.DEBUG)
+
   local selected_text = ""
   if has_selection then
     selected_text = utils.get_visual_selection(buf) or ""
+    vim.notify("[askai] selected_text len=" .. #selected_text, vim.log.levels.DEBUG)
   end
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
