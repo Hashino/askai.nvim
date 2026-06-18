@@ -13,21 +13,19 @@ local spinner_idx = 1 ---@type integer
 ---@param buf integer buffer handle
 ---@return string|nil, integer|nil
 function Utils.get_visual_selection(buf)
-  local mode = vim.fn.visualmode()
-  local cur_mode = vim.api.nvim_get_mode().mode
-  vim.notify("[askai debug] get_visual_selection: visualmode=[" .. (mode or "nil") .. "] get_mode=[" .. (cur_mode or "nil") .. "]", vim.log.levels.INFO)
+  -- nvim_get_mode().mode is authoritative (visualmode() persists after exiting)
+  local mode = vim.api.nvim_get_mode().mode
+  local visual_mode = vim.fn.visualmode()
+  vim.notify("[askai debug] get_visual_selection: get_mode=[" .. (mode or "nil") .. "] visualmode=[" .. (visual_mode or "nil") .. "]", vim.log.levels.INFO)
 
-  if not mode or mode == "" then
-    local cur = vim.api.nvim_get_mode().mode
-    if cur == "v" or cur == "V" then
-      mode = cur
-    elseif cur == "\22" then
-      mode = "\22"
-    else
-      vim.notify("[askai debug] no visual mode detected, returning nil", vim.log.levels.INFO)
-      return nil, nil
-    end
+  if mode ~= "v" and mode ~= "V" and mode ~= "\22" then
+    vim.notify("[askai debug] no visual mode detected (get_mode=[" .. (mode or "nil") .. "]), returning nil", vim.log.levels.INFO)
+    return nil, nil
   end
+
+  -- visualmode() is only for getting the visual subtype (v/V/^V)
+  local sub_mode = visual_mode
+  if sub_mode == "" then sub_mode = mode end
 
   if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then
     return nil, nil
@@ -44,7 +42,7 @@ function Utils.get_visual_selection(buf)
     end_pos = { v_end[2], v_end[3] - 1 }
   end
 
-  if mode == "V" then start_pos[2] = 0 end
+  if sub_mode == "V" then start_pos[2] = 0 end
 
   if start_pos[1] > end_pos[1]
       or (start_pos[1] == end_pos[1] and start_pos[2] > end_pos[2]) then
@@ -56,7 +54,7 @@ function Utils.get_visual_selection(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, start_line, end_pos[1], false)
   if #lines == 0 then return nil, nil end
 
-  if mode == "v" or mode == "\22" then
+  if sub_mode == "v" or sub_mode == "\22" then
     lines[1] = string.sub(lines[1], start_pos[2] + 1)
     if #lines == 1 then
       lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] - start_pos[2] + 1)
