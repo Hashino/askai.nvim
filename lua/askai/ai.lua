@@ -182,6 +182,19 @@ function AI.classify(question, callback)
   local classify_prompt = [[Classify the user request as "action" or "informational".
 Reply with exactly one word: "action" or "informational".
 
+- "action": user wants to MODIFY code (add, change, remove, fix, refactor, insert, delete, update).
+- "informational": user wants to UNDERSTAND code (explain, how, why, what, describe, question).
+
+Examples:
+User: add emojis to all notifications -> action
+User: explain this function -> informational
+User: fix the bug in line 10 -> action
+User: what is this file about? -> informational
+User: how does this work? -> informational
+User: refactor this code -> action
+User: why is this slow? -> informational
+User: remove the unused variable -> action
+
 User: ]] .. question
 
   vim.notify("[askai debug] classify called with question: " .. question, vim.log.levels.INFO)
