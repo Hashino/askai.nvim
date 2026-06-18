@@ -212,9 +212,8 @@ end
 
 --- Main entry point: ask the AI a question with context.
 ---@param question? string
----@param line1? integer range start (0 if no range)
----@param line2? integer range end (0 if no range)
-function AskAI.ask(question, line1, line2)
+---@param line? integer range start (0 if no range)
+function AskAI.ask(question, line)
   if not AskAI._initialized then
     vim.notify("[askai.nvim] Plugin not initialized. Call askai.setup() first.",
       vim.log.levels.ERROR)
@@ -232,9 +231,19 @@ function AskAI.ask(question, line1, line2)
     return
   end
 
-  -- Only use visual selection if explicit range was provided (:'<,'>AskAI)
+  -- Determine if we have a visual selection:
+  -- 1. Explicit range from command (:'<,'>AskAI) -> line1 > 0
+  -- 2. Called directly from visual mode keymap -> check current mode
+  local has_selection = false
+  if line and line > 0 then
+    has_selection = true
+  else
+    local mode = vim.api.nvim_get_mode().mode
+    has_selection = (mode == "v" or mode == "V" or mode == "\22")
+  end
+
   local selected_text = ""
-  if line1 and line1 > 0 then
+  if has_selection then
     selected_text = utils.get_visual_selection(buf) or ""
   end
 
