@@ -168,4 +168,26 @@ function Utils.get_visual_context(buf, line)
   }
 end
 
+--- Build diff content string from edits.
+---@param edits { oldString: string, newString: string }[]
+---@param summary? string
+---@return string content
+function Utils.build_diff(edits, summary)
+  if #edits > 0 then
+    local parts = {}
+    for i, e in ipairs(edits) do
+      if i > 1 then table.insert(parts, "") end
+      for _, l in ipairs(vim.split(e.oldString, "\n", { plain = true, })) do
+        table.insert(parts, "- " .. l)
+      end
+      for _, l in ipairs(vim.split(e.newString, "\n", { plain = true, })) do
+        table.insert(parts, "+ " .. l)
+      end
+    end
+    return table.concat(parts, "\n")
+  else
+    return summary or ""
+  end
+end
+
 return Utils

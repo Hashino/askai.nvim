@@ -1,12 +1,11 @@
 local config = require("askai.config")
 local ai     = require("askai.ai")
 local utils  = require("askai.utils")
+local window = require("askai.window")
 
 ---@class askai.AskAI [Hashino/askai.nvim] main module
----@field win_id? integer the id of floating window, or nil if none is being displayed
 ---@field _initialized boolean wether the plugin was properly setup
 local AskAI  = {
-  win_id = nil,
   _initialized = false,
 }
 
@@ -82,7 +81,10 @@ function AskAI.ask(question, line)
     if intent == "action" then
       ai.ask_action(context, function(resp)
         if resp and resp.edits then
-          AskAI.show(buf, resp)
+          local content = utils.build_diff(resp.edits)
+          local filetype = context.filetype
+          local wbuf, wwin = window.create_window(content, filetype, true)
+          window.setup_diff_window(wbuf, buf, resp.edits)
         else
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
         end
@@ -90,137 +92,14 @@ function AskAI.ask(question, line)
     else
       ai.ask_explain(context, function(resp)
         if resp and resp.summary then
-          AskAI.show(buf, resp)
+          local wbuf, wwin = window.create_window(resp.summary, nil, false)
+          window.setup_summary_window(wbuf)
         else
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
         end
       end)
     end
   end)
-end
-
---- Show a floating window with the AI response or diff preview.
----@param toedit integer buffer to apply edits to
----@param response { summary?: string, edits?: { oldString: string, newString: string }[] }
-function AskAI.show(toedit, response)
-  if not response or (response.summary and not response.edits) then return end
-
-  local edits = response.edits or {}
-  ---@type string
-  local content_str
-
-  if #edits > 0 then
-    local parts = {}
-    for i, e in ipairs(edits) do
-      if i > 1 then table.insert(parts, "") end
-      for _, l in ipairs(vim.split(e.oldString, "\n", { plain = true, })) do
-        table.insert(parts, "- " .. l)
-      end
-      for _, l in ipairs(vim.split(e.newString, "\n", { plain = true, })) do
-        table.insert(parts, "+ " .. l)
-      end
-    end
-    content_str = table.concat(parts, "\n")
-  else
-    content_str = response.summary
-  end
-
-  ---@diagnostic disable-next-line: param-type-mismatch
-  local trimmed = vim.trim(content_str)
-  if trimmed == "" then
-    vim.notify("[askai.nvim] AI returned an empty response", vim.log.levels.WARN)
-    return
-  end
-  content_str = trimmed
-
-  if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
-    pcall(vim.api.nvim_win_close, AskAI.win_id, true)
-    AskAI.win_id = nil
-  end
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf, })
-  vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf, })
-
-  local summary_lines = vim.split(content_str, "\n", { plain = true, })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, summary_lines)
-
-  -- Apply diff highlights when showing edits
-  if #edits > 0 then
-    local ft = vim.bo[toedit].filetype
-    if ft and ft ~= "" then
-      vim.api.nvim_set_option_value("filetype", ft, { buf = buf, })
-      pcall(vim.treesitter.start, buf, ft)
-    end
-    local ns = vim.api.nvim_create_namespace("askai_diff")
-    local lines = vim.split(content_str, "\n", { plain = true, })
-    for i, line in ipairs(lines) do
-      if line:match("^%- ") then
-        vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
-          hl_group = "AskaiDiffDelete",
-          end_row = i - 1 + 1,
-        })
-      elseif line:match("^%+ ") then
-        vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
-          hl_group = "AskaiDiffAdd",
-          end_row = i - 1 + 1,
-        })
-      end
-    end
-  else
-    vim.api.nvim_set_option_value("filetype", "markdown", { buf = buf, })
-    vim.api.nvim_set_option_value("syntax", "markdown", { buf = buf, })
-    vim.api.nvim_buf_call(buf, function()
-      vim.cmd("doautocmd FileType markdown")
-      if vim.treesitter and vim.treesitter.start then
-        pcall(vim.treesitter.start, buf, "markdown")
-      end
-    end)
-  end
-
-  vim.keymap.set("n", config.options.keys.dismiss, function()
-    if AskAI.win_id and vim.api.nvim_win_is_valid(AskAI.win_id) then
-      pcall(vim.api.nvim_win_close, AskAI.win_id, true)
-      AskAI.win_id = nil
-    end
-  end, { buffer = buf, })
-
-  ---@diagnostic disable-next-line: param-type-mismatch
-  AskAI.win_id = vim.api.nvim_open_win(buf, true, config.options.win_config)
-
-  vim.api.nvim_create_autocmd("WinClosed", {
-    buffer = buf,
-    once = true,
-    callback = function() AskAI.win_id = nil end,
-  })
-
-  if #edits > 0 then
-    local ft = vim.bo[toedit].filetype
-    if ft and ft ~= "" then
-      vim.api.nvim_set_option_value("filetype", ft, { buf = buf, })
-      pcall(vim.treesitter.start, buf, ft)
-    end
-    vim.keymap.set("n", config.options.keys.confirm, function()
-      pcall(vim.api.nvim_win_close, AskAI.win_id, true)
-      AskAI.win_id = nil
-      if vim.api.nvim_buf_is_valid(toedit)
-          and vim.api.nvim_buf_is_loaded(toedit) then
-        local ok, err = utils.apply_edits(toedit, edits)
-        if not ok then
-          vim.notify("[askai.nvim] failed to apply edits: " .. err, vim.log.levels.ERROR)
-        end
-      end
-    end, { buffer = buf, })
-
-    vim.api.nvim_set_option_value("winbar",
-      string.format(" [AskAI] %s to accept | %s to dismiss",
-        config.options.keys.confirm, config.options.keys.dismiss),
-      { win = AskAI.win_id, })
-  else
-    vim.api.nvim_set_option_value("winbar",
-      string.format(" [AskAI] %s to dismiss", config.options.keys.dismiss),
-      { win = AskAI.win_id, })
-  end
 end
 
 return AskAI
