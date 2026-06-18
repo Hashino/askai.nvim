@@ -9,7 +9,9 @@
 
 ask your AI about your code
 
-![demo](https://raw.githubusercontent.com/Hashino/askai.nvim/main/demo.gif)
+![demo1](https://raw.githubusercontent.com/Hashino/askai.nvim/main/demo1.gif)
+
+![demo2](https://raw.githubusercontent.com/Hashino/askai.nvim/main/demo2.gif)
 
 ## commands
 
