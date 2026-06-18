@@ -347,9 +347,7 @@ function AI.ask_action(context, callback)
           table.insert(edits, { oldString = tc.arguments.oldString, newString = tc.arguments.newString, })
         end
       end
-      if #edits == 1 then
-        callback({ edit = edits[1], })
-      elseif #edits > 0 then
+      if #edits > 0 then
         callback({ edits = edits, })
       else
         callback(nil)
