@@ -56,10 +56,14 @@ end, { desc = "Ask AI about selection" })
 
 ## usage
 
-Select some text in visual mode, then:
-
+**With text selected** (visual mode):
 ```
 :'<,'>AskAI why is this function slow?
+```
+
+**Without selection** (normal mode):
+```
+:AskAI what does this file do?
 ```
 
 The AI receives:
@@ -68,7 +72,9 @@ The AI receives:
 - the **selected text** (if any)
 - the **full document** for context
 
-A braille spinner (`⣾⣽⣻⢿⡿⣟⣯⣷`) animates in the bottom-right corner while waiting for the response. The answer appears in a floating window with `syntax=markdown`. If the AI suggests a code edit, press `<S-CR>` (configurable) to apply it, or `<Esc>` to dismiss.
+When no text is selected, the AI answers questions about the entire file. When text is selected, it focuses on that region while using the full file as context.
+
+A braille spinner (`⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷`) animates in the bottom-right corner while waiting for the response. The answer appears in a floating window with `syntax=markdown`. If the AI suggests a code edit, press `<S-CR>` (configurable) to apply it, or `<Esc>` to dismiss.
 
 ## provider requirements
 
