@@ -3,11 +3,33 @@ local ai     = require("askai.ai")
 local utils  = require("askai.utils")
 local window = require("askai.window")
 
+-- provider validation can hit a transient error (e.g. a 5xx); retry a few times
+-- before giving up so one hiccup doesn't disable the whole session.
+local VALIDATE_ATTEMPTS = 3
+local VALIDATE_INTERVAL_MS = 3000
+
+---@alias askai.State
+---| "not" setup() has not been called yet
+---| "initializing" setup() is validating the provider
+---| "error" setup() ran but the plugin could not be initialized
+---| "initialized" ready to use
+
 ---@class askai.AskAI [Hashino/askai.nvim] main module
----@field _initialized boolean whether the plugin was properly set up
+---@field _state askai.State plugin initialization state
 local AskAI  = {
-  _initialized = false,
+  _state = "not",
 }
+
+--- applies the configured highlight groups
+local function apply_highlights()
+  for group, spec in pairs(config.options.highlights) do
+    if type(spec) == "string" then
+      pcall(vim.api.nvim_set_hl, 0, group, { link = spec, })
+    elseif type(spec) == "table" then
+      pcall(vim.api.nvim_set_hl, 0, group, spec)
+    end
+  end
+end
 
 --- setup askai.nvim
 ---@param opts? askai.Config
@@ -19,28 +41,28 @@ function AskAI.setup(opts)
       or config.options.provider.api_key == "" then
     vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set",
       vim.log.levels.ERROR)
-    AskAI._initialized = false
+    AskAI._state = "error"
     return
   end
 
-  ai.validate_provider(function(validation)
-    if not validation.success then
-      vim.notify("[askai.nvim] provider validation failed: " .. validation.error,
-        vim.log.levels.ERROR)
-      AskAI._initialized = false
-      return
-    end
+  AskAI._state = "initializing"
 
-    for group, spec in pairs(config.options.highlights) do
-      if type(spec) == "string" then
-        pcall(vim.api.nvim_set_hl, 0, group, { link = spec, })
-      elseif type(spec) == "table" then
-        pcall(vim.api.nvim_set_hl, 0, group, spec)
+  local function attempt(n)
+    ai.validate_provider(function(validation)
+      if validation.success then
+        apply_highlights()
+        AskAI._state = "initialized"
+      elseif n < VALIDATE_ATTEMPTS then
+        vim.defer_fn(function() attempt(n + 1) end, VALIDATE_INTERVAL_MS)
+      else
+        vim.notify("[askai.nvim] provider validation failed: " .. validation.error,
+          vim.log.levels.ERROR)
+        AskAI._state = "error"
       end
-    end
+    end)
+  end
 
-    AskAI._initialized = true
-  end)
+  attempt(1)
 end
 
 --- main entry point: ask the AI a question with the current buffer as context.
@@ -52,10 +74,23 @@ end
 ---@param question? string
 ---@param selection? string selected code (auto-detected from visual mode if nil)
 function AskAI.ask(question, selection)
-  if not AskAI._initialized then
-    vim.notify(
-      "[askai.nvim] plugin not initialized. call askai.setup() with a valid config first.",
-      vim.log.levels.ERROR)
+  if AskAI._state ~= "initialized" then
+    local hint = {
+      ["not"] = {
+        "askai.setup() was not called — add require(\"askai\").setup({ ... }) to your config",
+        vim.log.levels.ERROR,
+      },
+      initializing = {
+        "askai is still initializing, wait a moment and try again",
+        vim.log.levels.WARN,
+      },
+      error = {
+        "askai failed to initialize — check your provider config (see :messages)",
+        vim.log.levels.ERROR,
+      },
+    }
+    local h = hint[AskAI._state]
+    vim.notify("[askai.nvim] " .. h[1], h[2])
     return
   end
 
