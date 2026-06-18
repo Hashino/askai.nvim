@@ -92,7 +92,7 @@ function AskAI.ask(question, line)
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
         end
       end)
-    else
+    elseif intent == "informational" then
       ai.ask_explain(context, function(resp)
         if resp and resp.summary then
           local wbuf, wwin = window.create_window(resp.summary, nil, false)
@@ -101,6 +101,9 @@ function AskAI.ask(question, line)
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
         end
       end)
+    else
+      vim.notify("[askai.nvim] Failed to classify request: '" .. tostring(intent) .. "'",
+        vim.log.levels.ERROR)
     end
   end)
 end
