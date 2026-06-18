@@ -13,8 +13,8 @@ local spinner_idx = 1 ---@type integer
 ---@param buf integer buffer handle
 ---@return string|nil, integer|nil
 function Utils.get_visual_selection(buf)
+  -- Must be in visual mode NOW (marks persist after exiting)
   local mode = vim.fn.visualmode()
-
   if not mode or mode == "" then
     local cur = vim.api.nvim_get_mode().mode
     if cur == "v" or cur == "V" then
@@ -30,13 +30,13 @@ function Utils.get_visual_selection(buf)
     return nil, nil
   end
 
-  local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
-  local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
-
-  -- Verify we're still in visual mode (marks persist after exiting)
+  -- Re-verify still in visual mode after any potential async gap
   if not vim.fn.visualmode() or vim.fn.visualmode() == "" then
     return nil, nil
   end
+
+  local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
+  local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
 
   if start_pos[1] == 0 and end_pos[1] == 0 then
     local v_start = vim.fn.getpos("v")
