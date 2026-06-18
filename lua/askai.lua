@@ -85,6 +85,9 @@ function AskAI.ask(question, line)
           local filetype = context.filetype
           local wbuf, wwin = window.create_window(content, filetype, true)
           window.setup_diff_window(wbuf, buf, resp.edits)
+        elseif resp and resp.summary then
+          local wbuf, wwin = window.create_window(resp.summary, nil, false)
+          window.setup_summary_window(wbuf)
         else
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
         end
