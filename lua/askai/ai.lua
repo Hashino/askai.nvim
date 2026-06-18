@@ -337,6 +337,7 @@ function AI.ask_action(context, callback)
     .. "\n"
     .. "\nTo change similar text in multiple places, provide one `edit`"
     .. "\ncall with the exact text to find — it will replace ALL matches."
+    .. "\n\nAlways use fenced code blocks with language annotation (e.g., ```lua, ```python) in your responses."
 
   AI.ask(prompt, function(resp)
     if not resp then callback(nil); return end
@@ -377,6 +378,8 @@ function AI.ask_explain(context, callback)
     prompt = "Question: " .. context.question .. "\n\n"
       .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
   end
+
+  prompt = prompt .. "\n\nAlways use fenced code blocks with language annotation (e.g., ```lua, ```python) in your responses."
 
   AI.ask(prompt, function(resp)
     if not resp then callback(nil); return end
