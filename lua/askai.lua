@@ -232,6 +232,7 @@ function AskAI.ask(question)
 
   local selected_text = utils.get_visual_selection(buf)
   selected_text = selected_text or ""
+  vim.notify("[askai debug] captured selected_text: len=" .. #selected_text .. " content=[" .. selected_text:sub(1, 50) .. "]", vim.log.levels.INFO)
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   local filetype = vim.bo[buf].filetype

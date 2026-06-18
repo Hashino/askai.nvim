@@ -184,6 +184,8 @@ Reply with exactly one word: "action" or "informational".
 
 User: ]] .. question
 
+  vim.notify("[askai debug] classify called with question: " .. question, vim.log.levels.INFO)
+
   local headers, body, is_anthropic = build_request(classify_prompt)
 
   local cmd = { "curl", "-sS", "-X", "POST", config.options.provider.api_url, }
@@ -209,6 +211,7 @@ User: ]] .. question
         local content = extract_content(decoded, is_anthropic)
         if type(content) ~= "string" then callback("action"); return end
         local intent = content:match("^(action)$") or content:match("^(informational)$")
+        vim.notify("[askai debug] classify result: " .. (intent or "action"), vim.log.levels.INFO)
         callback(intent or "action")
       end)
     end,
@@ -306,14 +309,19 @@ function AI.ask_action(context, callback)
   local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true) ~= nil
   local ft = context.filetype or ""
 
+  local sel = context.selected_text
+  vim.notify("[askai debug] ask_action: selected_text len=" .. #(sel or "") .. " empty=" .. tostring(sel == nil or sel == ""), vim.log.levels.INFO)
+
   local prompt
   if context.selected_text and context.selected_text ~= "" then
+    vim.notify("[askai debug] Using action prompt WITH selection", vim.log.levels.INFO)
     prompt = "Question: " .. context.question .. "\n\n"
       .. "Selected text:\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
       .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```\n\n"
       .. "CRITICAL: You must ONLY edit within the selected text shown above.\n"
       .. "The full file is for context only — do NOT change code outside the selected region."
   else
+    vim.notify("[askai debug] Using action prompt WITHOUT selection", vim.log.levels.INFO)
     prompt = "Question: " .. context.question .. "\n\n"
       .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
   end
@@ -354,13 +362,18 @@ function AI.ask_explain(context, callback)
   local is_anthropic = config.options.provider.api_url:find("anthropic.com", 1, true) ~= nil
   local ft = context.filetype or ""
 
+  local sel = context.selected_text
+  vim.notify("[askai debug] ask_explain: selected_text len=" .. #(sel or "") .. " empty=" .. tostring(sel == nil or sel == ""), vim.log.levels.INFO)
+
   local prompt
   if context.selected_text and context.selected_text ~= "" then
+    vim.notify("[askai debug] Using explain prompt WITH selection", vim.log.levels.INFO)
     prompt = "Question: " .. context.question .. "\n\n"
       .. "Selected text:\n```" .. ft .. "\n" .. context.selected_text .. "\n```\n\n"
       .. "Full file (context only):\n```" .. ft .. "\n" .. context.full_file .. "\n```\n\n"
       .. "Explain the selected code. The full file is for context."
   else
+    vim.notify("[askai debug] Using explain prompt WITHOUT selection", vim.log.levels.INFO)
     prompt = "Question: " .. context.question .. "\n\n"
       .. "File:\n```" .. ft .. "\n" .. context.full_file .. "\n```"
   end
