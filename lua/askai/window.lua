@@ -10,7 +10,7 @@ local M = {
 ---@param content string
 ---@param filetype? string
 ---@param is_diff boolean
----@return integer buf, integer win_id
+---@return integer buf
 function M.create_window(content, filetype, is_diff)
   -- Close existing window if open
   if M.win_id and vim.api.nvim_win_is_valid(M.win_id) then
@@ -76,7 +76,7 @@ function M.create_window(content, filetype, is_diff)
     end,
   })
 
-  return buf, M.win_id
+  return buf
 end
 
 --- Setup diff window with confirm keymap and winbar.

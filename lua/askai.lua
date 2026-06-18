@@ -83,10 +83,10 @@ function AskAI.ask(question, line)
         if resp and resp.edits then
           local content = utils.build_diff(resp.edits)
           local filetype = context.filetype
-          local wbuf, wwin = window.create_window(content, filetype, true)
+          local wbuf = window.create_window(content, filetype, true)
           window.setup_diff_window(wbuf, buf, resp.edits)
         elseif resp and resp.summary then
-          local wbuf, wwin = window.create_window(resp.summary, nil, false)
+          local wbuf = window.create_window(resp.summary, nil, false)
           window.setup_summary_window(wbuf)
         else
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
@@ -95,7 +95,7 @@ function AskAI.ask(question, line)
     elseif intent == "informational" then
       ai.ask_explain(context, function(resp)
         if resp and resp.summary then
-          local wbuf, wwin = window.create_window(resp.summary, nil, false)
+          local wbuf = window.create_window(resp.summary, nil, false)
           window.setup_summary_window(wbuf)
         else
           vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
