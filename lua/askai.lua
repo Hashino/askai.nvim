@@ -22,7 +22,8 @@ function AskAI.setup(opts)
   if config.options.provider.api_url == ""
       or config.options.provider.model == ""
       or config.options.provider.api_key == "" then
-    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set", vim.log.levels.ERROR)
+    vim.notify("[askai.nvim] provider.api_url, provider.model and api_key must be set",
+      vim.log.levels.ERROR)
     AskAI._initialized = false
     return
   end
@@ -246,6 +247,10 @@ function AskAI.ask(question, line)
   local selected_text = ""
   if has_selection then
     selected_text = utils.get_visual_selection(buf) or ""
+    -- If selection is empty (stale marks), treat as no selection
+    if selected_text == "" then
+      has_selection = false
+    end
   end
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
