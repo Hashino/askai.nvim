@@ -28,26 +28,27 @@ function AskAI.setup(opts)
     return
   end
 
-  local validation = ai.validate_provider()
-  if not validation.success then
-    vim.notify("[askai.nvim] provider validation failed: " .. validation.error,
-      vim.log.levels.ERROR)
-    AskAI._initialized = false
-    return
-  end
-
-  AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true, })
-
-  for group, spec in pairs(config.options.highlights) do
-    if type(spec) == "string" then
-      pcall(vim.api.nvim_set_hl, 0, group, { link = spec, })
-    elseif type(spec) == "table" then
-      pcall(vim.api.nvim_set_hl, 0, group, spec)
+  ai.validate_provider(function(validation)
+    if not validation.success then
+      vim.notify("[askai.nvim] provider validation failed: " .. validation.error,
+        vim.log.levels.ERROR)
+      AskAI._initialized = false
+      return
     end
-  end
 
-  vim.notify("[askai.nvim] provider validated successfully", vim.log.levels.INFO)
-  AskAI._initialized = true
+    AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true, })
+
+    for group, spec in pairs(config.options.highlights) do
+      if type(spec) == "string" then
+        pcall(vim.api.nvim_set_hl, 0, group, { link = spec, })
+      elseif type(spec) == "table" then
+        pcall(vim.api.nvim_set_hl, 0, group, spec)
+      end
+    end
+
+    vim.notify("[askai.nvim] provider validated successfully", vim.log.levels.INFO)
+    AskAI._initialized = true
+  end)
 end
 
 --- Apply edit(s) to a buffer. Validates oldString uniqueness, replaces all

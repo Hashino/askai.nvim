@@ -400,9 +400,9 @@ function AI.ask_explain(context, callback)
   end, { build_explain_tool(is_anthropic), })
 end
 
---- Make a synchronous test request to validate provider config.
----@return { success: boolean, error?: string }
-function AI.validate_provider()
+--- Make an async test request to validate provider config.
+---@param callback fun(result: { success: boolean, error?: string })
+function AI.validate_provider(callback)
   local test_prompt = "Reply with exactly: OK"
   local headers, body, is_anthropic = build_request(test_prompt)
 
@@ -416,7 +416,6 @@ function AI.validate_provider()
 
   local stdout_data = {}
   local stderr_data = {}
-  local exit_code = nil
 
   local job_id = vim.fn.jobstart(cmd, {
     stdout_buffered = true,
@@ -436,41 +435,47 @@ function AI.validate_provider()
       end
     end,
     on_exit = function(_, code, _)
-      exit_code = code
+      if job_id <= 0 then
+        callback({ success = false, error = "Failed to start curl process", })
+        return
+      end
+
+      if code ~= 0 then
+        local err = table.concat(stderr_data, "")
+        callback({
+          success = false,
+          error = "curl exited with code "
+            .. (code or "unknown")
+            .. (err ~= "" and ": " .. err or ""),
+        })
+        return
+      end
+
+      local output = table.concat(stdout_data, "")
+      if not output or vim.trim(output) == "" then
+        callback({ success = false, error = "Provider returned empty response", })
+        return
+      end
+
+      local ok, decoded = pcall(vim.json.decode, output)
+      if not ok then
+        callback({ success = false, error = "Could not parse API response: " .. output, })
+        return
+      end
+
+      local content = extract_content(decoded, is_anthropic)
+      if type(content) ~= "string" or content == "" then
+        callback({ success = false, error = "Provider returned empty content", })
+        return
+      end
+
+      callback({ success = true, })
     end,
   })
 
   if job_id <= 0 then
-    return { success = false, error = "Failed to start curl process", }
+    callback({ success = false, error = "Failed to start curl process", })
   end
-
-  local result = vim.fn.jobwait({ job_id, }, 15000)
-  if not result or result[1] ~= 0 then
-    local err = table.concat(stderr_data, "")
-    return {
-      success = false,
-      error = "curl exited with code "
-        .. (exit_code or (result and result[1] or "unknown"))
-        .. (err ~= "" and ": " .. err or ""),
-    }
-  end
-
-  local output = table.concat(stdout_data, "")
-  if not output or vim.trim(output) == "" then
-    return { success = false, error = "Provider returned empty response", }
-  end
-
-  local ok, decoded = pcall(vim.json.decode, output)
-  if not ok then
-    return { success = false, error = "Could not parse API response: " .. output, }
-  end
-
-  local content = extract_content(decoded, is_anthropic)
-  if type(content) ~= "string" or content == "" then
-    return { success = false, error = "Provider returned empty content", }
-  end
-
-  return { success = true, }
 end
 
 return AI
