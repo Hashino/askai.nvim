@@ -40,30 +40,77 @@ function AskAI.setup(opts)
       end
     end
 
-    vim.notify("[askai.nvim] provider validated successfully", vim.log.levels.INFO)
     AskAI._initialized = true
+  end)
+end
+
+--- Main entry point: ask the AI a question with context.
+---@param question? string
+---@param line? integer range start (0 if no range)
+function AskAI.ask(question, line)
+  if not AskAI._initialized then
+    vim.notify(
+      "[askai.nvim] Plugin not properly initialized. Call askai.setup() with a valid config first.",
+      vim.log.levels.ERROR)
+    return
+  end
+
+  if question == nil or question == "" then
+    question = vim.fn.input("Ask AI: ")
+    if question == "" then return end
+  end
+
+  local buf = vim.api.nvim_get_current_buf()
+  if not (vim.api.nvim_buf_is_valid(buf)
+        and vim.api.nvim_buf_is_loaded(buf)) then
+    return
+  end
+
+  local ctx = utils.get_visual_context(buf, line)
+  local context = {
+    question = question,
+    selected_text = ctx.selected_text,
+    full_file = ctx.full_file,
+    filetype = ctx.filetype,
+  }
+
+  utils.show_spinner()
+
+  ai.classify(question, function(intent)
+    if intent == "action" then
+      ai.ask_action(context, function(resp)
+        utils.hide_spinner()
+        if resp and (resp.edit or resp.edits) then
+          AskAI.show(buf, resp)
+        elseif resp and resp.summary then
+          AskAI.show(buf, resp)
+        else
+          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+        end
+      end)
+    else
+      ai.ask_explain(context, function(resp)
+        utils.hide_spinner()
+        if resp and resp.summary then
+          AskAI.show(buf, resp)
+        else
+          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
+        end
+      end)
+    end
   end)
 end
 
 --- Show a floating window with the AI response or diff preview.
 ---@param toedit integer buffer to apply edits to
----@param response { summary?: string, edit?: { oldString: string, newString: string }, edits?: { oldString: string, newString: string }[] }
+---@param response { summary?: string, edits?: { oldString: string, newString: string }[] }
 function AskAI.show(toedit, response)
   if not response then return end
-  if not response.summary and not response.edit and not response.edits then return end
+  if not response.summary and not response.edits then return end
 
-  -- Collect edits and build window content
-  ---@type { oldString: string, newString: string }[]
-  local edits = {}
+  local edits = response.edits or {}
   ---@type string
   local content_str
-
-  if response.edit then
-    edits = { response.edit, }
-  elseif response.edits then
-    ---@type { oldString: string, newString: string }[]
-    edits = response.edits
-  end
 
   if #edits > 0 then
     local parts = {}
@@ -177,63 +224,6 @@ function AskAI.show(toedit, response)
       string.format(" [AskAI] %s to dismiss", config.options.keys.dismiss),
       { win = AskAI.win_id, })
   end
-end
-
---- Main entry point: ask the AI a question with context.
----@param question? string
----@param line? integer range start (0 if no range)
-function AskAI.ask(question, line)
-  if not AskAI._initialized then
-    vim.notify(
-      "[askai.nvim] Plugin not properly initialized. Call askai.setup() with a valid config first.",
-      vim.log.levels.ERROR)
-    return
-  end
-
-  if question == nil or question == "" then
-    question = vim.fn.input("Ask AI: ")
-    if question == "" then return end
-  end
-
-  local buf = vim.api.nvim_get_current_buf()
-  if not (vim.api.nvim_buf_is_valid(buf)
-        and vim.api.nvim_buf_is_loaded(buf)) then
-    return
-  end
-
-  local ctx = utils.get_visual_context(buf, line)
-  local context = {
-    question = question,
-    selected_text = ctx.selected_text,
-    full_file = ctx.full_file,
-    filetype = ctx.filetype,
-  }
-
-  utils.show_spinner()
-
-  ai.classify(question, function(intent)
-    if intent == "action" then
-      ai.ask_action(context, function(resp)
-        utils.hide_spinner()
-        if resp and (resp.edit or resp.edits) then
-          AskAI.show(buf, resp)
-        elseif resp and resp.summary then
-          AskAI.show(buf, resp)
-        else
-          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
-        end
-      end)
-    else
-      ai.ask_explain(context, function(resp)
-        utils.hide_spinner()
-        if resp and resp.summary then
-          AskAI.show(buf, resp)
-        else
-          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
-        end
-      end)
-    end
-  end)
 end
 
 return AskAI
