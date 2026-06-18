@@ -23,9 +23,15 @@ expectation.
 
 ## Setup
 
+Run the plan with the tracked, keyless dev config — it needs no API key (free
+OpenCode Zen models):
+
 ```sh
-nvim -u custom_nvim_config/init.lua /tmp/complex.lua
+nvim -u tests/init.lua /tmp/complex.lua
 ```
+
+To run against a different provider, copy `tests/init.lua` and edit the `provider`
+block.
 
 `/tmp/complex.lua` (recreate if missing):
 

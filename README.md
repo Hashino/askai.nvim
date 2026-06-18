@@ -89,3 +89,13 @@ Providers without tool calling support will **not** work with this plugin.
 ## config
 
 [see the source code for default options](https://github.com/Hashino/askai.nvim/blob/main/lua/askai/config.lua)
+
+## testing
+
+The `tests/` directory provides a manual test suite for your coding agent to run
+if you want to fork or contribute to the plugin. It drives a real Neovim session
+with [tui-use](https://github.com/onesuper/tui-use) and ships a keyless config
+(`tests/init.lua`) that uses a free provider, so no API key is needed.
+
+See [`tests/tests.md`](https://github.com/Hashino/askai.nvim/blob/main/tests/tests.md)
+for the plan and how to run it.
