@@ -10,21 +10,10 @@ local spinner_timer = nil
 local spinner_idx = 1 ---@type integer
 
 --- Extract visual selection text and its 0-indexed start line.
+--- Uses marks `<` and `>` which persist after exiting visual mode.
 ---@param buf integer buffer handle
 ---@return string|nil, integer|nil
 function Utils.get_visual_selection(buf)
-  -- nvim_get_mode().mode is authoritative (visualmode() persists after exiting)
-  local mode = vim.api.nvim_get_mode().mode
-  local visual_mode = vim.fn.visualmode()
-
-  if mode ~= "v" and mode ~= "V" and mode ~= "\22" then
-    return nil, nil
-  end
-
-  -- visualmode() is only for getting the visual subtype (v/V/^V)
-  local sub_mode = visual_mode
-  if sub_mode == "" then sub_mode = mode end
-
   if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then
     return nil, nil
   end
@@ -32,26 +21,26 @@ function Utils.get_visual_selection(buf)
   local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
   local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
 
+  -- No visual selection marks set
   if start_pos[1] == 0 and end_pos[1] == 0 then
-    local v_start = vim.fn.getpos("v")
-    local v_end = vim.fn.getpos(".")
-    start_pos = { v_start[2], v_start[3] - 1 }
-    end_pos = { v_end[2], v_end[3] - 1 }
+    return nil, nil
   end
 
-  if sub_mode == "V" then start_pos[2] = 0 end
+  -- Determine visual mode type from visualmode()
+  local visual_mode = vim.fn.visualmode()
 
+  -- Ensure start <= end
   if start_pos[1] > end_pos[1]
       or (start_pos[1] == end_pos[1] and start_pos[2] > end_pos[2]) then
     start_pos, end_pos = end_pos, start_pos
   end
 
   local start_line = start_pos[1] - 1
-
   local lines = vim.api.nvim_buf_get_lines(buf, start_line, end_pos[1], false)
   if #lines == 0 then return nil, nil end
 
-  if sub_mode == "v" or sub_mode == "\22" then
+  -- Handle character-wise (v) and block-wise (^V) visual mode
+  if visual_mode == "v" or visual_mode == "\22" then
     lines[1] = string.sub(lines[1], start_pos[2] + 1)
     if #lines == 1 then
       lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] - start_pos[2] + 1)
@@ -59,6 +48,9 @@ function Utils.get_visual_selection(buf)
       lines[#lines] = string.sub(lines[#lines], 1, end_pos[2] + 1)
     end
   end
+
+  -- Line-wise (V) visual mode: start_pos[2] is already 0, lines are full
+  -- No adjustment needed for line-wise
 
   return table.concat(lines, "\n"), start_line
 end
