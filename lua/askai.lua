@@ -7,9 +7,6 @@ local utils  = require("askai.utils")
 local AskAI  = {
   win_id = nil,
 
-  ---@type integer?
-  augroup = nil,
-
   ---@type boolean
   _initialized = false,
 }
@@ -35,8 +32,6 @@ function AskAI.setup(opts)
       AskAI._initialized = false
       return
     end
-
-    AskAI.augroup = vim.api.nvim_create_augroup("AskAI", { clear = true, })
 
     for group, spec in pairs(config.options.highlights) do
       if type(spec) == "string" then
