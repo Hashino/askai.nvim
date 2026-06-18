@@ -7,7 +7,7 @@ local askai = require("askai")
 
 vim.api.nvim_create_user_command("AskAI", function(args)
   -- args.range is 2 only when an explicit range was given (e.g. :'<,'>AskAI).
-  -- In that case the selection is exactly the lines line1..line2. A plain
+  -- in that case the selection is exactly the lines line1..line2. a plain
   -- :AskAI from normal mode has range == 0, so it carries no selection.
   local selection
   if args.range == 2 then

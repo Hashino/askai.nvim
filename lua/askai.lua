@@ -4,12 +4,12 @@ local utils  = require("askai.utils")
 local window = require("askai.window")
 
 ---@class askai.AskAI [Hashino/askai.nvim] main module
----@field _initialized boolean wether the plugin was properly setup
+---@field _initialized boolean whether the plugin was properly set up
 local AskAI  = {
   _initialized = false,
 }
 
---- Setup askai.nvim
+--- setup askai.nvim
 ---@param opts? askai.Config
 function AskAI.setup(opts)
   config.options = vim.tbl_deep_extend("force", config.options, opts or {})
@@ -43,27 +43,24 @@ function AskAI.setup(opts)
   end)
 end
 
---- Main entry point: ask the AI a question with context.
+--- main entry point: ask the AI a question with the current buffer as context.
 ---
---- `selection` is the selected code to focus on. When omitted, it is detected
+--- `selection` is the selected code to focus on. when omitted, it is detected
 --- automatically: if the editor is currently in visual mode the live selection
---- is captured, otherwise the request has no selection. The `:AskAI` command
+--- is captured, otherwise the request has no selection. the `:AskAI` command
 --- passes its range text explicitly through this argument.
 ---@param question? string
 ---@param selection? string selected code (auto-detected from visual mode if nil)
 function AskAI.ask(question, selection)
   if not AskAI._initialized then
     vim.notify(
-      "[askai.nvim] Plugin not properly initialized. Call askai.setup() with a valid config first.",
+      "[askai.nvim] plugin not initialized. call askai.setup() with a valid config first.",
       vim.log.levels.ERROR)
     return
   end
 
   local buf = vim.api.nvim_get_current_buf()
-  if not (vim.api.nvim_buf_is_valid(buf)
-        and vim.api.nvim_buf_is_loaded(buf)) then
-    return
-  end
+  if not (vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then return end
 
   if selection == nil then
     selection = utils.get_visual_selection(buf)
@@ -73,6 +70,7 @@ function AskAI.ask(question, selection)
     question = vim.fn.input("Ask AI: ")
     if question == "" then return end
   end
+
   local context = {
     question = question,
     selected_text = selection or "",
@@ -83,35 +81,19 @@ function AskAI.ask(question, selection)
   utils.show_spinner()
 
   ai.classify(question, function(intent)
-    if intent == "action" then
-      ai.ask_action(context, function(resp)
-        utils.hide_spinner()
-        if resp and resp.edits then
-          local content = utils.build_diff(resp.edits)
-          local filetype = context.filetype
-          local wbuf = window.create_window(content, filetype, true)
-          window.setup_diff_window(wbuf, buf, resp.edits)
-        elseif resp and resp.summary then
-          local wbuf = window.create_window(resp.summary, nil, false)
-          window.setup_summary_window(wbuf)
-        else
-          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
-        end
-      end)
-    elseif intent == "informational" then
-      ai.ask_explain(context, function(resp)
-        utils.hide_spinner()
-        if resp and resp.summary then
-          local wbuf = window.create_window(resp.summary, nil, false)
-          window.setup_summary_window(wbuf)
-        else
-          vim.notify("[askai.nvim] No response from AI", vim.log.levels.WARN)
-        end
-      end)
-    else
-      vim.notify("[askai.nvim] Failed to classify request: '" .. tostring(intent) .. "'",
-        vim.log.levels.ERROR)
-    end
+    local ask = intent == "action" and ai.ask_action or ai.ask_explain
+    ask(context, function(resp)
+      utils.hide_spinner()
+      if resp and resp.edits then
+        local wbuf = window.create_window(utils.build_diff(resp.edits), context.filetype, true)
+        window.setup_diff_window(wbuf, buf, resp.edits)
+      elseif resp and resp.summary then
+        window.create_window(resp.summary, nil, false)
+        window.setup_summary_window()
+      else
+        vim.notify("[askai.nvim] no response from AI", vim.log.levels.WARN)
+      end
+    end)
   end)
 end
 

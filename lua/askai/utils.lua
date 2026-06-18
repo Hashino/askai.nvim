@@ -1,18 +1,17 @@
 local config = require("askai.config")
 
 ---@class askai.Utils [Hashino/askai.nvim] utilities
-
 local Utils = {}
 
--- Spinner state (internal)
+-- spinner state (internal)
 local spinner_win = nil ---@type integer?
 local spinner_timer = nil
 local spinner_idx = 1 ---@type integer
 
---- Extract the text the user is selecting *right now*.
---- Returns nil unless the editor is currently in visual mode, so stale `<`/`>`
+--- extracts the text the user is selecting *right now*.
+--- returns nil unless the editor is currently in visual mode, so stale `<`/`>`
 --- marks from a previous selection can never leak into a later request.
---- Reads the live endpoints with `getpos("v")` (selection start) and
+--- reads the live endpoints with `getpos("v")` (selection start) and
 --- `getpos(".")` (cursor), which are valid while visual mode is active.
 ---@param buf integer buffer handle
 ---@return string|nil selection
@@ -36,12 +35,12 @@ function Utils.get_visual_selection(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, s_line - 1, e_line, false)
   if #lines == 0 then return nil end
 
-  -- Line-wise (V): whole lines, columns are irrelevant
+  -- line-wise (V): whole lines, columns are irrelevant
   if mode == "V" then
     return table.concat(lines, "\n")
   end
 
-  -- Char-wise (v) and block-wise (^V, approximated as a char span)
+  -- char-wise (v) and block-wise (^V, approximated as a char span)
   if #lines == 1 then
     lines[1] = string.sub(lines[1], s_col, e_col)
   else
@@ -51,7 +50,7 @@ function Utils.get_visual_selection(buf)
   return table.concat(lines, "\n")
 end
 
---- Show a braille spinner in the bottom-right corner.
+--- shows a braille spinner in the bottom-right corner
 function Utils.show_spinner()
   if spinner_win and vim.api.nvim_win_is_valid(spinner_win) then
     return
@@ -75,7 +74,7 @@ function Utils.show_spinner()
     { win = spinner_win, })
 
   spinner_idx = 1
-  spinner_timer = vim.loop.new_timer()
+  spinner_timer = vim.uv.new_timer()
   if spinner_timer then
     spinner_timer:start(
       config.options.spinner_interval_ms,
@@ -92,7 +91,7 @@ function Utils.show_spinner()
   end
 end
 
---- Hide and clean up the spinner.
+--- hides and cleans up the spinner
 function Utils.hide_spinner()
   if spinner_timer then
     spinner_timer:stop()
@@ -105,29 +104,43 @@ function Utils.hide_spinner()
   end
 end
 
---- Apply edits to a buffer.
---- When e.all is true, replaces ALL occurrences of oldString.
---- When e.all is false, replaces only the FIRST occurrence.
+--- replaces the first plain-text occurrence of `old` with `new`, or every
+--- occurrence when `all` is true. uses plain (non-pattern) semantics so neither
+--- `old` nor `new` can be interpreted as a Lua pattern or replacement.
+---@param content string
+---@param old string
+---@param new string
+---@param all boolean
+---@return string
+local function replace(content, old, new, all)
+  if old == "" then return content end
+
+  local parts, pos = {}, 1
+  while true do
+    local s = content:find(old, pos, true)
+    if not s then break end
+    table.insert(parts, content:sub(pos, s - 1))
+    table.insert(parts, new)
+    pos = s + #old
+    if not all then break end
+  end
+  table.insert(parts, content:sub(pos))
+  return table.concat(parts)
+end
+
+--- applies edits to a buffer; `all` replaces every occurrence, else the first
 ---@param buf integer
 ---@param edits { oldString: string, newString: string, all: boolean }[]
 ---@return boolean ok
 ---@return string? err
 function Utils.apply_edits(buf, edits)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local content = table.concat(lines, "\n")
+  local content = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
 
   for _, e in ipairs(edits) do
-    local first = content:find(e.oldString, 1, true)
-    if not first then
+    if not content:find(e.oldString, 1, true) then
       return false, "oldString not found in file:\n```\n" .. e.oldString .. "\n```"
     end
-    if e.all then
-      content = content:gsub(vim.pesc(e.oldString), e.newString)
-    else
-      local before = content:sub(1, first - 1)
-      local after = content:sub(first + #e.oldString)
-      content = before .. e.newString .. after
-    end
+    content = replace(content, e.oldString, e.newString, e.all)
   end
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false,
@@ -135,26 +148,21 @@ function Utils.apply_edits(buf, edits)
   return true
 end
 
---- Build diff content string from edits.
+--- builds the `-`/`+` diff text shown for a set of edits
 ---@param edits { oldString: string, newString: string, all: boolean }[]
----@param summary? string
----@return string content
-function Utils.build_diff(edits, summary)
-  if #edits > 0 then
-    local parts = {}
-    for i, e in ipairs(edits) do
-      if i > 1 then table.insert(parts, "") end
-      for _, l in ipairs(vim.split(e.oldString, "\n", { plain = true, })) do
-        table.insert(parts, "- " .. l)
-      end
-      for _, l in ipairs(vim.split(e.newString, "\n", { plain = true, })) do
-        table.insert(parts, "+ " .. l)
-      end
+---@return string
+function Utils.build_diff(edits)
+  local parts = {}
+  for i, e in ipairs(edits) do
+    if i > 1 then table.insert(parts, "") end
+    for _, l in ipairs(vim.split(e.oldString, "\n", { plain = true, })) do
+      table.insert(parts, "- " .. l)
     end
-    return table.concat(parts, "\n")
-  else
-    return summary or ""
+    for _, l in ipairs(vim.split(e.newString, "\n", { plain = true, })) do
+      table.insert(parts, "+ " .. l)
+    end
   end
+  return table.concat(parts, "\n")
 end
 
 return Utils

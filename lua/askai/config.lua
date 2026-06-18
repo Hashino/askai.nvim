@@ -15,6 +15,7 @@ Config.options = {
   ---@field api_key string API key for the provider
   ---@field api_url string API URL for the provider
   ---@field model string model to use for the provider
+  ---@field headers? table<string, string> DEV ONLY: extra request headers; an empty value removes a header
   provider = { api_key = "", api_url = "", model = "", },
 
   ---@class askai.Config.Keys
