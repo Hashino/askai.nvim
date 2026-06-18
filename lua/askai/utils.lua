@@ -16,10 +16,8 @@ function Utils.get_visual_selection(buf)
   -- nvim_get_mode().mode is authoritative (visualmode() persists after exiting)
   local mode = vim.api.nvim_get_mode().mode
   local visual_mode = vim.fn.visualmode()
-  vim.notify("[askai debug] get_visual_selection: get_mode=[" .. (mode or "nil") .. "] visualmode=[" .. (visual_mode or "nil") .. "]", vim.log.levels.INFO)
 
   if mode ~= "v" and mode ~= "V" and mode ~= "\22" then
-    vim.notify("[askai debug] no visual mode detected (get_mode=[" .. (mode or "nil") .. "]), returning nil", vim.log.levels.INFO)
     return nil, nil
   end
 
@@ -33,7 +31,6 @@ function Utils.get_visual_selection(buf)
 
   local start_pos = vim.api.nvim_buf_get_mark(buf, "<")
   local end_pos = vim.api.nvim_buf_get_mark(buf, ">")
-  vim.notify("[askai debug] marks: start=[" .. start_pos[1] .. "," .. start_pos[2] .. "] end=[" .. end_pos[1] .. "," .. end_pos[2] .. "]", vim.log.levels.INFO)
 
   if start_pos[1] == 0 and end_pos[1] == 0 then
     local v_start = vim.fn.getpos("v")
