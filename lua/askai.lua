@@ -212,7 +212,9 @@ end
 
 --- Main entry point: ask the AI a question with context.
 ---@param question? string
-function AskAI.ask(question)
+---@param line1? integer range start (0 if no range)
+---@param line2? integer range end (0 if no range)
+function AskAI.ask(question, line1, line2)
   if not AskAI._initialized then
     vim.notify("[askai.nvim] Plugin not initialized. Call askai.setup() first.",
       vim.log.levels.ERROR)
@@ -230,8 +232,11 @@ function AskAI.ask(question)
     return
   end
 
-  local selected_text = utils.get_visual_selection(buf)
-  selected_text = selected_text or ""
+  -- Only use visual selection if explicit range was provided (:'<,'>AskAI)
+  local selected_text = ""
+  if line1 and line1 > 0 then
+    selected_text = utils.get_visual_selection(buf) or ""
+  end
 
   local full_file = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   local filetype = vim.bo[buf].filetype

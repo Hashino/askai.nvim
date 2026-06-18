@@ -6,7 +6,7 @@
 local askai = require("askai")
 
 vim.api.nvim_create_user_command("AskAI", function(args)
-  askai.ask(args.args)
+  askai.ask(args.args, args.line1, args.line2)
 end, {
   range = true,
   nargs = "*",
