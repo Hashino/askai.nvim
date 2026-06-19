@@ -54,9 +54,13 @@ require("askai").setup({
 ## keymap example
 
 ```lua
-vim.keymap.set("v", "<leader>aa", function()
+vim.keymap.set({ "n", "v" }, "<leader>ac", function()
   require("askai").ask("explain this code")
-end, { desc = "[A]sk [A]I about selection" })
+end, { desc = "[A]sk AI about the [C]ode" })
+
+vim.keymap.set({ "n", "v" }, "<leader>ai", function()
+  require("askai").ask()
+end, { desc = "[A]sk AI (prompt for [I]nput)" })
 ```
 
 ## usage
