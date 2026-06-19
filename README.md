@@ -2,12 +2,15 @@
   <a href="https://www.buymeacoffee.com/Hashino" target="_blank">
     <img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png"
     alt="Buy Me A Coffee" style="height: 24px !important;width: 104px !important;" >
-  </a>
 </div>
 
 # askai.nvim
 
-ask your AI about your code
+<a href="https://dotfyle.com/plugins/Hashino/askai.nvim">
+	<img src="https://dotfyle.com/plugins/Hashino/askai.nvim/shield?style=flat" />
+</a>
+
+this plugin add the ability to ask your AI something about your code or to do an edit on it. nothing more
 
 ![demo1](https://raw.githubusercontent.com/Hashino/askai.nvim/main/demo1.gif)
 
@@ -53,7 +56,7 @@ require("askai").setup({
 ```lua
 vim.keymap.set("v", "<leader>aa", function()
   require("askai").ask("explain this code")
-end, { desc = "Ask AI about selection" })
+end, { desc = "[A]sk [A]I about selection" })
 ```
 
 ## usage
